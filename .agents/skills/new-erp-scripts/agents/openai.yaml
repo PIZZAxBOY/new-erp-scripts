@@ -1,0 +1,3 @@
+interface:
+  display_name: "new-erp 脚本"
+  short_description: "按需使用独立脚本查询 new-erp 数据"
