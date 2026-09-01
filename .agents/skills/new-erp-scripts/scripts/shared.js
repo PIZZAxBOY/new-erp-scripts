@@ -259,21 +259,22 @@ function getTokenFromArgs(args) {
   return token || null;
 }
 
-function readCatalogRows() {
-  const mapPath = configuredValue('NEW_ERP_CATALOG_MAP', 'catalogMap');
-  if (!mapPath) {
-    throw new CommandExecutionError('catalog map is required for parent catalog expansion; set NEW_ERP_CATALOG_MAP or config.catalogMap');
-  }
-  let json;
-  try {
-    json = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), mapPath), 'utf8'));
-  } catch (error) {
-    throw new CommandExecutionError(`failed to read new-erp catalog map: ${error?.message || error}`);
-  }
-  if (!Array.isArray(json?.maps?.catalog_list_flat)) {
-    throw new CommandExecutionError('new-erp catalog map is missing maps.catalog_list_flat');
-  }
-  return json.maps.catalog_list_flat;
+async function fetchCatalogRows(token) {
+  const url = new URL(`${getBaseUrl()}/index.php`);
+  url.searchParams.set('r', '/products/game-product-list/selected-options');
+  const json = await requestJson(url.href, {
+    label: 'new-erp catalog selected-options',
+    headers: { token },
+  });
+  const rows = [];
+  const walk = (nodes) => {
+    for (const node of Array.isArray(nodes) ? nodes : []) {
+      rows.push(node);
+      walk(node?.son);
+    }
+  };
+  walk(json?.data?.catalog_list);
+  return rows;
 }
 
 function parseIdList(value, label) {
@@ -290,13 +291,13 @@ const BROWSER_CATALOG_GROUPS = {
   '1674': ['1674', '1675', '1677', '1676', '512', '490'],
 };
 
-function expandCatalogIds(value) {
+function expandCatalogIds(value, catalogRows = []) {
   const parsed = parseIdList(value, 'catalogId');
   if (!parsed) return null;
   const ids = parsed.split(',');
   if (ids.length > 1) return parsed;
 
-  const children = readCatalogRows().reduce((map, row) => {
+  const children = catalogRows.reduce((map, row) => {
     const parentId = String(row?.parent ?? '').trim();
     const childId = String(row?.id ?? '').trim();
     if (!parentId || !childId) return map;
@@ -326,11 +327,11 @@ function expandCatalogIds(value) {
   return expandedIds.join(',');
 }
 
-function catalogNamesForIds(value) {
+function catalogNamesForIds(value, catalogRows = []) {
   if (!value) return null;
   const ids = new Set(value.split(','));
   return new Set(
-    readCatalogRows()
+    catalogRows
       .filter((row) => ids.has(String(row?.id ?? '').trim()))
       .map((row) => String(row?.name_cn ?? '').trim())
       .filter(Boolean),
@@ -344,13 +345,13 @@ module.exports = {
   EmptyResultError,
   catalogNamesForIds,
   expandCatalogIds,
+  fetchCatalogRows,
   formatHelp,
   getBaseUrl,
   getTokenFromArgs,
   loginToken,
   parseArgs,
   positiveInteger,
-  readCatalogRows,
   requestJson,
   requiredString,
   runCli,

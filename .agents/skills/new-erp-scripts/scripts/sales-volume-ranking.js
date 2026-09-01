@@ -4,6 +4,7 @@ const {
   EmptyResultError,
   catalogNamesForIds,
   expandCatalogIds,
+  fetchCatalogRows,
   getBaseUrl,
   getTokenFromArgs,
   loginToken,
@@ -250,9 +251,7 @@ async function main(argsValue) {
   if (!DATE_DIMENSIONS.has(dateDimension)) {
     throw new ArgumentError(`dateDimension must be one of: ${[...DATE_DIMENSIONS].join(', ')}`);
   }
-  const catalogId = expandCatalogIds(argsValue.catalogId);
   const productTypeCate = normalizeProductTypeCate(argsValue.productTypeCate);
-  const expectedCatalogNames = catalogNamesForIds(catalogId);
 
   const page = positiveInteger(argsValue.page, 1, 'page', 100000);
   const pageSize = positiveInteger(argsValue.pageSize, 20, 'pageSize', 100);
@@ -267,6 +266,9 @@ async function main(argsValue) {
     throw new ArgumentError('page must be 1 when fetchAll=true');
   }
   const token = await resolveToken(argsValue);
+  const catalogRows = argsValue.catalogId ? await fetchCatalogRows(token) : [];
+  const catalogId = expandCatalogIds(argsValue.catalogId, catalogRows);
+  const expectedCatalogNames = catalogNamesForIds(catalogId, catalogRows);
   const firstPage = await fetchSalesPage({
     token,
     page,

@@ -137,6 +137,49 @@ test('a command logs in and queries the ERP with native Node APIs', async () => 
   }
 });
 
+test('sales command expands a parent catalog from the ERP without catalog map config', async () => {
+  const calls = [];
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    calls.push(url);
+    response.setHeader('content-type', 'application/json');
+    if (url.searchParams.get('r') === '/products/game-product-list/selected-options') {
+      response.end(JSON.stringify({ code: 200, data: { catalog_list: [{
+        id: 10,
+        name_cn: '父类',
+        son: [{ id: 11, parent: 10, name_cn: '子类' }],
+      }] } }));
+      return;
+    }
+    response.end(JSON.stringify({
+      code: 200,
+      data: {
+        totalCount: 1,
+        list: [{ sku: 'ABC', catalog_name_cn: '子类', sales_sum: 1, mean: 1 }],
+      },
+    }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const result = await runScript('sales-volume-ranking.js', [
+      '--startDate', '2026-01-01',
+      '--endDate', '2026-01-31',
+      '--catalogId', '10',
+      '--token', 'mock-token',
+    ], {
+      ...process.env,
+      NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}`,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(calls[0].searchParams.get('r'), '/products/game-product-list/selected-options');
+    assert.equal(calls[1].searchParams.get('catalog_id'), '10,11');
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('an optional config file supplies the ERP base URL and env wins', async () => {
   const server = http.createServer((request, response) => {
     response.setHeader('content-type', 'application/json');

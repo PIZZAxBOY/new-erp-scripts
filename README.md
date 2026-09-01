@@ -49,7 +49,7 @@ node .agents/skills/new-erp-scripts/scripts/sales-volume-ranking.js --startDate 
 node .agents/skills/new-erp-scripts/scripts/category-summary.js --startDate 2026-01-01 --endDate 2026-01-31
 ```
 
-命令会把 JSON 数组写入 stdout，把错误信息写入 stderr。展开父级分类需要 `NEW_ERP_CATALOG_MAP` 或 `config.catalogMap`。
+命令会把 JSON 数组写入 stdout，把错误信息写入 stderr。父级分类会使用 ERP 实时分类树自动展开。
 
 ## 验证
 

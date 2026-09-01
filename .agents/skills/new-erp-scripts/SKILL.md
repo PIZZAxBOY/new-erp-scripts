@@ -10,7 +10,7 @@ description: "当用户需要查询 new-erp 数据、搜索商品、查看商品
 ## 运行前
 
 - 使用已配置的 ERP 地址。项目根目录中的 `config.json` 可提供默认值，`NEW_ERP_BASE_URL` 会覆盖其中的 `baseUrl`。需要使用其他 JSON 配置文件时，设置 `NEW_ERP_CONFIG`。
-- 配置文件支持 `baseUrl`、`username`、`password`、`token` 和 `catalogMap`。对应的环境变量是 `NEW_ERP_BASE_URL`、`NEW_ERP_USERNAME`、`NEW_ERP_PASSWORD`、`NEW_ERP_TOKEN` 和 `NEW_ERP_CATALOG_MAP`，环境变量优先。
+- 配置文件支持 `baseUrl`、`username`、`password` 和 `token`。对应的环境变量是 `NEW_ERP_BASE_URL`、`NEW_ERP_USERNAME`、`NEW_ERP_PASSWORD` 和 `NEW_ERP_TOKEN`，环境变量优先。
 - 优先使用 token。不要打印、回显或提交认证信息。
 - 如果缺少 ERP 地址或认证信息，先向用户索取，不要猜测主机地址。
 - 不确定选项时，使用 `node "$SKILL_DIR/scripts/<command>.js" --help` 查看帮助。在当前仓库中，`SKILL_DIR=.agents/skills/new-erp-scripts`。
@@ -42,7 +42,7 @@ node "$SKILL_DIR/scripts/category-summary.js" --startDate 2026-01-01 --endDate 2
 
 只填写日期时，开始时间使用 `00:00:00`，结束时间使用 `23:59:59`。`sales-volume-ranking` 默认返回 ERP 排序后的一个分页。需要完整结果并重新排序时，使用 `--fetchAll true`。`category-summary` 始终获取整个匹配范围，统计的是记录行数，不是销售数量。
 
-展开父级分类需要 `NEW_ERP_CATALOG_MAP` 或 `config.catalogMap`。如果没有分类映射，只使用 ERP 地址可以直接接受的分类 ID，或者不传分类筛选条件。
+单个父级分类 ID 会使用 ERP 实时分类树自动展开。
 
 ## 修改脚本时
 

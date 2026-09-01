@@ -9,6 +9,7 @@ const {
 const {
   catalogNamesForIds,
   expandCatalogIds,
+  fetchCatalogRows,
   fetchSalesPage,
   normalizeAuctionSite,
   normalizeDateTime,
@@ -43,13 +44,14 @@ async function main(argsValue) {
   if (!['monthly', 'yearly'].includes(dateDimension)) {
     throw new ArgumentError('dateDimension must be one of: monthly, yearly');
   }
-  const catalogId = expandCatalogIds(argsValue.catalogId);
   const productTypeCate = normalizeProductTypeCate(argsValue.productTypeCate);
-  const expectedCatalogNames = catalogNamesForIds(catalogId);
   const pageSize = positiveInteger(argsValue.pageSize, 100, 'pageSize', 100);
   const maxPages = positiveInteger(argsValue.maxPages, 100, 'maxPages', 1000);
   const concurrency = positiveInteger(argsValue.concurrency, 1, 'concurrency', 10);
   const token = await resolveToken(argsValue);
+  const catalogRows = argsValue.catalogId ? await fetchCatalogRows(token) : [];
+  const catalogId = expandCatalogIds(argsValue.catalogId, catalogRows);
+  const expectedCatalogNames = catalogNamesForIds(catalogId, catalogRows);
 
   const fetchPage = (page) => fetchSalesPage({
     token,
