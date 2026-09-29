@@ -1,0 +1,27 @@
+{
+  "name": "new-erp-scripts",
+  "version": "0.1.0",
+  "description": "Command-line tools for querying new-erp",
+  "exports": "./index.mjs",
+  "bin": {
+    "new-erp-catalog-list": ".agents/skills/new-erp-scripts/scripts/catalog-list.js",
+    "new-erp-category-summary": ".agents/skills/new-erp-scripts/scripts/category-summary.js",
+    "new-erp-game-product-batch": ".agents/skills/new-erp-scripts/scripts/game-product-batch.js",
+    "new-erp-game-product-list": ".agents/skills/new-erp-scripts/scripts/game-product-list.js",
+    "new-erp-product-detail": ".agents/skills/new-erp-scripts/scripts/product-detail.js",
+    "new-erp-sales-volume-ranking": ".agents/skills/new-erp-scripts/scripts/sales-volume-ranking.js",
+    "new-erp-sales-volume-export": ".agents/skills/new-erp-scripts/scripts/sales-volume-export.js",
+    "new-erp-supply-evidence": ".agents/skills/new-erp-scripts/scripts/supply-evidence.js",
+    "new-erp-stocking-assembly-inbound": ".agents/skills/new-erp-scripts/scripts/stocking-assembly-inbound.js"
+  },
+  "files": [
+    "index.mjs",
+    ".agents/skills/new-erp-scripts/scripts/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/standalone-cli.test.js"
+  }
+}

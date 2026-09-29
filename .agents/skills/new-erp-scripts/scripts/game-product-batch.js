@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const {
   ArgumentError,
   EmptyResultError,
@@ -131,6 +132,8 @@ async function main(argsValue) {
   if (outputRows.length === 0) throw new EmptyResultError('new-erp game-product-batch', 'No products found');
   return outputRows;
 }
+
+module.exports = { main };
 
 if (require.main === module) {
   runCli({

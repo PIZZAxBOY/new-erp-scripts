@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const {
   ArgumentError,
   CommandExecutionError,
@@ -31,6 +32,7 @@ const AUCTION_SITE_ALIASES = new Map([
   ['ostrogear', 'OG'],
 ]);
 const DATE_DIMENSIONS = new Set(['monthly', 'yearly']);
+const AGGREGATE_BY = new Set(['sku', 'sku-platform']);
 const PRODUCT_TYPE_CATE_MAP = new Map([
   ['5', '5'],
   ['顶级物料', '5'],
@@ -141,6 +143,7 @@ function outputRow(row, rank, totalCount, includeRaw) {
   return {
     rank,
     auctionSite: String(row?.auction_site ?? '').trim() || null,
+    auctionSiteType: String(row?.auction_site_type ?? '').trim() || null,
     sku,
     nameCn: String(row?.name_cn ?? '').trim() || null,
     catalogNameCn: String(row?.catalog_name_cn ?? '').trim() || null,
@@ -168,6 +171,9 @@ async function fetchSalesPage({
   startDateTime,
   endDateTime,
   auctionSite,
+  auctionSiteType,
+  sku,
+  aggregateBy = 'sku',
   dateDimension,
   catalogId,
   productTypeCate,
@@ -178,8 +184,10 @@ async function fetchSalesPage({
   url.searchParams.set('r', '/statistics/sales-volume/list');
   url.searchParams.set('page', String(page));
   url.searchParams.set('pageSize', String(pageSize));
-  url.searchParams.set('aggregate_by', 'sku');
+  url.searchParams.set('aggregate_by', aggregateBy);
   if (auctionSite) url.searchParams.set('auction_site', auctionSite);
+  if (auctionSiteType) url.searchParams.set('auction_site_type', auctionSiteType);
+  if (sku) url.searchParams.set('sku', sku);
   url.searchParams.set('date_dimension', dateDimension);
   url.searchParams.set('date_range', `${startDateTime} & ${endDateTime}`);
   url.searchParams.set('mode', 'sku');
@@ -215,6 +223,9 @@ const args = [
   { name: 'startDate', type: 'string', default: '', help: '开始时间，YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss（必填）' },
   { name: 'endDate', type: 'string', default: '', help: '结束时间，YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss（必填）' },
   { name: 'auctionSite', type: 'string', default: '', help: '品牌：EXR/eXtremeRate → JY；PV/PlayVital → YS；HEX/HexGaming → HX；OG/OstroGear → OG；留空查询全部品牌' },
+  { name: 'auctionSiteType', type: 'string', default: '', help: '平台类型筛选；传给 ERP 的 auction_site_type' },
+  { name: 'sku', type: 'string', default: '', help: '精确匹配 SKU；ERP 是前缀查询，脚本会抓取后再过滤' },
+  { name: 'aggregateBy', type: 'string', choices: ['sku', 'sku-platform'], default: 'sku', help: '按 SKU 或 SKU+平台汇总' },
   { name: 'catalogId', type: 'string', default: '', help: '品牌类目 catalog_id；单个父类目自动展开，多个 ID 用逗号/空格分隔' },
   { name: 'productTypeCate', type: 'string', default: '', help: '产品类型：5/顶级物料，6/二级物料；留空不筛选' },
   { name: 'dateDimension', type: 'string', choices: ['monthly', 'yearly'], default: 'monthly', help: '统计维度' },
@@ -247,6 +258,10 @@ async function main(argsValue) {
   }
 
   const auctionSite = normalizeAuctionSite(argsValue.auctionSite);
+  const auctionSiteType = String(argsValue.auctionSiteType ?? '').trim();
+  const sku = String(argsValue.sku ?? '').trim();
+  const aggregateBy = String(argsValue.aggregateBy ?? 'sku').trim();
+  if (!AGGREGATE_BY.has(aggregateBy)) throw new ArgumentError('aggregateBy must be sku or sku-platform');
   const dateDimension = String(argsValue.dateDimension ?? 'monthly').trim().toLowerCase();
   if (!DATE_DIMENSIONS.has(dateDimension)) {
     throw new ArgumentError(`dateDimension must be one of: ${[...DATE_DIMENSIONS].join(', ')}`);
@@ -255,7 +270,7 @@ async function main(argsValue) {
 
   const page = positiveInteger(argsValue.page, 1, 'page', 100000);
   const pageSize = positiveInteger(argsValue.pageSize, 20, 'pageSize', 100);
-  const fetchAll = Boolean(argsValue.fetchAll);
+  const fetchAll = Boolean(argsValue.fetchAll || sku);
   const maxPages = positiveInteger(argsValue.maxPages, 100, 'maxPages', 1000);
   if (!fetchAll && (sort !== 'sales' || order !== 'desc')) {
     throw new ArgumentError(
@@ -276,6 +291,9 @@ async function main(argsValue) {
     startDateTime: start.text,
     endDateTime: end.text,
     auctionSite,
+    auctionSiteType,
+    sku,
+    aggregateBy,
     dateDimension,
     catalogId,
     productTypeCate,
@@ -327,6 +345,9 @@ async function main(argsValue) {
       startDateTime: start.text,
       endDateTime: end.text,
       auctionSite,
+      auctionSiteType,
+      sku,
+      aggregateBy,
       dateDimension,
       catalogId,
       productTypeCate,
@@ -351,7 +372,9 @@ async function main(argsValue) {
     );
   }
 
-  const decoratedRows = mergedRows.map((apiRow, sourceIndex) => ({ apiRow, sourceIndex }));
+  const decoratedRows = mergedRows
+    .filter((apiRow) => !sku || String(apiRow?.sku ?? '').trim() === sku)
+    .map((apiRow, sourceIndex) => ({ apiRow, sourceIndex }));
   decoratedRows.sort((leftItem, rightItem) => {
     const primary = compareNullable(
       rawSortValue(leftItem.apiRow, sort),
@@ -370,12 +393,13 @@ async function main(argsValue) {
   return decoratedRows.map((item, index) => outputRow(
     item.apiRow,
     index + 1,
-    totalCount,
+    decoratedRows.length,
     Boolean(argsValue.raw),
   ));
 }
 
 module.exports = {
+  main,
   catalogNamesForIds,
   expandCatalogIds,
   fetchSalesPage,

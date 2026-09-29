@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const {
   ArgumentError,
   CommandExecutionError,
@@ -152,6 +153,8 @@ async function main(argsValue) {
       distinctCategoryCount,
     }));
 }
+
+module.exports = { main };
 
 if (require.main === module) {
   runCli({

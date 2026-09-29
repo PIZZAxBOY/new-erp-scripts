@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const {
   EmptyResultError,
   getBaseUrl,
@@ -100,6 +101,8 @@ async function main(argsValue) {
 
   return [detailRow(data, Boolean(argsValue.raw))];
 }
+
+module.exports = { main };
 
 if (require.main === module) {
   runCli({

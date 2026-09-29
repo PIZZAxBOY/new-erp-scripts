@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const {
   ArgumentError,
   EmptyResultError,
@@ -129,6 +130,8 @@ async function main(argsValue) {
   }
   return filtered.map((row) => outputRow(row, Boolean(argsValue.raw)));
 }
+
+module.exports = { main };
 
 if (require.main === module) {
   runCli({

@@ -15,7 +15,34 @@ const scripts = [
   'game-product-list.js',
   'product-detail.js',
   'sales-volume-ranking.js',
+  'sales-volume-export.js',
+  'supply-evidence.js',
+  'stocking-assembly-inbound.js',
 ];
+
+test('package exposes callable functions through ES module imports', async () => {
+  const api = await import('new-erp-scripts');
+  assert.deepEqual(Object.keys(api).sort(), [
+    'catalogList', 'categorySummary', 'gameProductBatch', 'gameProductList',
+    'productDetail', 'salesVolumeExport', 'salesVolumeRanking',
+    'stockingAssemblyInbound', 'supplyEvidence',
+  ].sort());
+  await assert.rejects(api.salesVolumeRanking({ startDate: 'bad', endDate: '2026-01-01' }), /startDate/);
+});
+
+test('stocking inbound counts only linked backup assembly receipts for the exact SKU', () => {
+  const { summarize } = require(path.join(scriptsRoot, 'stocking-assembly-inbound.js'));
+  const inventory = [
+    { id: 1, sku: 'AXKNTM004', action_name: '入库', in_out_remark: '拼装物料组合SKU:AXKNTM004_1', purchase_orderid: 'PZ1', put_num: '467' },
+    { id: 2, sku: 'AXKNTM004', action_name: '入库', in_out_remark: '其他--采购进货', purchase_orderid: 'PZ1', put_num: '500' },
+    { id: 3, sku: 'AXKNTM004WS', action_name: '入库', in_out_remark: '拼装物料组合SKU:AXKNTM004WS_1', purchase_orderid: 'PZ1', put_num: '100' },
+    { id: 4, sku: 'AXKNTM004', action_name: '入库', in_out_remark: '拼装物料组合SKU:AXKNTM004_2', purchase_orderid: 'PZ2', put_num: '200' },
+  ];
+  const tasks = [{ id: 10, sku: 'AXKNTM004', pz_no: 'PZ1', type: '2' }, { id: 11, sku: 'AXKNTM004', pz_no: 'PZ2', type: '1' }];
+  const result = summarize('AXKNTM004', inventory, tasks);
+  assert.equal(result.quantity, 467);
+  assert.deepEqual(result.records.map((row) => row.inventoryId), [1]);
+});
 
 function runScript(script, args, env) {
   return new Promise((resolve, reject) => {
@@ -176,6 +203,93 @@ test('sales command expands a parent catalog from the ERP without catalog map co
     assert.equal(calls[0].searchParams.get('r'), '/products/game-product-list/selected-options');
     assert.equal(calls[1].searchParams.get('catalog_id'), '10,11');
   } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('sales SKU search removes ERP prefix matches and sends platform options', async () => {
+  const calls = [];
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    calls.push(url);
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ code: 200, data: { totalCount: 2, list: [
+      { sku: 'ABC', auction_site_type: 'Amazon', sales_sum: 3 },
+      { sku: 'ABCD', auction_site_type: 'Amazon', sales_sum: 7 },
+    ] } }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const result = await runScript('sales-volume-ranking.js', [
+      '--startDate', '2026-01-01', '--endDate', '2026-01-31', '--sku', 'ABC',
+      '--aggregateBy', 'sku-platform', '--auctionSiteType', 'Amazon', '--token', 'mock-token',
+    ], { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(calls[0].searchParams.get('aggregate_by'), 'sku-platform');
+    assert.equal(calls[0].searchParams.get('auction_site_type'), 'Amazon');
+    assert.equal(calls[0].searchParams.get('sku'), 'ABC');
+    assert.deepEqual(JSON.parse(result.stdout).map((row) => [row.sku, row.sales, row.totalCount]), [['ABC', 3, 1]]);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('plan evidence reads detail and keeps only exact SKU rows', async () => {
+  const calls = [];
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    calls.push(url);
+    response.setHeader('content-type', 'application/json');
+    const data = url.searchParams.get('r') === '/warehouse/sales-plan-order/view-detail'
+      ? { data: [{ sku: 'ABC', num: 4 }, { sku: 'ABCD', num: 40 }, { sku: 'ABC', num: 5 }] }
+      : { totalCount: 1, list: [{ id: 7, confirmed_no: 'P7', sku: 'ABCD', num: 49, add_time: '2026-01-03' }] };
+    response.end(JSON.stringify({ code: 200, data }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const result = await runScript('supply-evidence.js', [
+      '--source', 'plan', '--sku', 'ABC', '--startDate', '2026-01-01', '--endDate', '2026-01-31', '--token', 'mock-token',
+    ], { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(calls[0].searchParams.get('add_time'), '2026-01-01 00:00:00 & 2026-01-31 23:59:59');
+    assert.equal(calls[1].searchParams.get('id'), '7');
+    assert.equal(calls[1].searchParams.get('confirmed_no'), 'P7');
+    assert.deepEqual(JSON.parse(result.stdout).map((row) => row.plannedNum), [4, 5]);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('platform export reuses a finished task and saves its CSV without resubmitting', async () => {
+  const calls = [];
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    calls.push(url.searchParams.get('r'));
+    if (url.searchParams.get('r') === '/settings/download-center/download-file') {
+      response.setHeader('content-disposition', 'attachment; filename="sales.csv"');
+      response.end('platform,sales\nAmazon,3\n');
+      return;
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ code: 200, data: { list: [{
+      id: 9, status: 3, start_date: '2026-01-01 00:00:00', end_date: '2026-01-31 23:59:59',
+      add_condition: JSON.stringify({ params: { mode: 'domain', aggregate_by: 'platform',
+        date_dimension: 'monthly', date_range: '2026-01-01 00:00:00 & 2026-01-31 23:59:59', index: 'sales-volume' } }),
+    }] } }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'new-erp-export-'));
+  const output = path.join(tempDir, 'sales.csv');
+  try {
+    const result = await runScript('sales-volume-export.js', [
+      '--startDate', '2026-01-01', '--endDate', '2026-01-31', '--aggregateBy', 'platform',
+      '--output', output, '--token', 'mock-token',
+    ], { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(calls, ['/settings/download-center/index', '/settings/download-center/download-file']);
+    assert.equal(await fs.readFile(output, 'utf8'), 'platform,sales\nAmazon,3\n');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
