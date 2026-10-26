@@ -51,4 +51,6 @@ npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp-gam
 
 配置来自运行命令时当前目录的 `config.json`，或 `NEW_ERP_CONFIG` 指定的文件。支持 `baseUrl/username/password/token`，对应的 `NEW_ERP_BASE_URL/NEW_ERP_USERNAME/NEW_ERP_PASSWORD/NEW_ERP_TOKEN` 环境变量优先。认证先用显式 token，再用环境变量或配置中的 token，最后才登录。
 
-缺少配置时说明缺少哪些字段，引导用户在本地配置文件或环境变量中填写；不要要求用户在聊天中发送密码或 token。查询结果及导出文件保留业务原文，对外分享前另行脱敏。
+缺少配置时，允许主动询问用户的 ERP 网址（`baseUrl`）、登录账号（`username`）和密码（`password`），只询问尚未提供的字段；已有可用 token 时无需再询问账号密码。网址和账号可在对话中询问，密码或 token 使用平台提供的私密输入工具（如 `request_secret`）收集；没有私密输入工具时，引导用户在本地配置文件或环境变量中填写。
+
+认证信息仅用于用户指定的 ERP，不在回复、日志或示例中回显密码和 token，不提交到版本库。查询结果及导出文件保留业务原文，对外分享前另行脱敏。
