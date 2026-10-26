@@ -1,0 +1,3 @@
+interface:
+  display_name: "new-erp 脚本"
+  short_description: "通过命令行查询与导出 new-erp 商品、销量、库存和装箱数据"

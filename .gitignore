@@ -1,0 +1,15 @@
+config.json
+*.local.json
+.env
+.env.*
+!.env.example
+.DS_Store
+.venv/
+
+# Local credentials and generated exports
+*.pem
+*.key
+*.p12
+*.pfx
+*.tgz
+exports/
