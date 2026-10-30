@@ -107,7 +107,7 @@ function parseArgs(argv, definitions) {
 }
 
 function formatHelp({ name, description, args }) {
-  const lines = [`Usage: node ${name}.js [options]`, '', description, '', 'Options:'];
+  const lines = [`Usage: new-erp ${name} [options]`, '', description, '', 'Options:'];
   for (const argument of args) {
     const value = argument.type === 'bool' ? '' : ` <${argument.type}>`;
     const defaultText = argument.default === '' || argument.default === undefined

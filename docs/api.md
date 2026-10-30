@@ -25,7 +25,7 @@
 
 ## 市场订单
 
-`marketOrderList(options)` / `new-erp-market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 [submitter 接口文档](https://github.com/PIZZAxBOY/submitter/blob/main/APIreference.md) 及 ERP 前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
+`marketOrderList(options)` / `new-erp market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 [submitter 接口文档](https://github.com/PIZZAxBOY/submitter/blob/main/APIreference.md) 及 ERP 前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
 
 | 选项 | ERP 参数与含义 |
 | --- | --- |
@@ -79,7 +79,7 @@ const detail = await exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER
 // 用保存的ID恢复：exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER', stockFrom: 'DEMO-FROM', taskId })
 ```
 
-对应 CLI 为 `new-erp-packing-order-list`、`new-erp-packing-order-pages` 和 `new-erp-packing-detail-export`。逐页命令每页输出一行 JSON（NDJSON），遵守标准输出背压；导出命令须传 `--output ./packing.xlsx`，可用 `--taskId` 恢复。导出保持 ERP 原文，包含 SKU、数量、渠道、箱实重kg和尺寸cm，不直接返回四种运输占比或货代最终结算重量。
+对应 CLI 为 `new-erp packing-order-list`、`new-erp packing-order-pages` 和 `new-erp packing-detail-export`。逐页命令每页输出一行 JSON（NDJSON），遵守标准输出背压；导出命令须传 `--output ./packing.xlsx`，可用 `--taskId` 恢复。导出保持 ERP 原文，包含 SKU、数量、渠道、箱实重kg和尺寸cm，不直接返回四种运输占比或货代最终结算重量。
 
 ### 请求数验证
 
@@ -87,7 +87,7 @@ const detail = await exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER
 
 ## 配货、库存与包装
 
-以下接口均支持 ES module 导入，同时提供同名连字符 CLI（如 `packingBatchList` 对应 `new-erp-packing-batch-list`）。只读取 ERP 数据，不创建或修改业务单据。
+以下接口均支持 ES module 导入，同时提供同名连字符 CLI（如 `packingBatchList` 对应 `new-erp packing-batch-list`）。只读取 ERP 数据，不创建或修改业务单据。
 
 | API | 必填选项 | 返回内容 |
 | --- | --- | --- |

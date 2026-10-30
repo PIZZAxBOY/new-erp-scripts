@@ -89,8 +89,8 @@ test('market orders use the read-only ERP route and retain raw records and metad
   });
 
   await t.test('CLI supports filters and fetchAll and emits JSON', async () => {
-    const child = spawn(process.execPath, ['scripts/market-order-list.js', '--searchType=5',
-      '--searchValue', 'demo@example.invalid', '--fetchAll', '--pageSize', '2', '--token', 'test-token'], {
+    const child = spawn(process.execPath, ['scripts/new-erp.js', 'market-order-list', '--searchType=5',
+      '--searchValue=demo@example.invalid with spaces', '--fetchAll', '--pageSize', '2', '--token', 'test-token'], {
       cwd: path.resolve(__dirname, '..'), env: process.env,
     });
     let stdout = '';
@@ -106,6 +106,6 @@ test('market orders use the read-only ERP route and retain raw records and metad
     assert.deepEqual(result.list, rows);
     assert.equal(result.complete, true);
     assert.equal(result.source.query.search_type, '5');
-    assert.equal(result.source.query.search_value, 'demo@example.invalid');
+    assert.equal(result.source.query.search_value, 'demo@example.invalid with spaces');
   });
 });

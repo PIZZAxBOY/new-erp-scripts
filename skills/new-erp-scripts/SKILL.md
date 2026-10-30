@@ -8,10 +8,12 @@ description: "通过命令行查询和导出 new-erp 商品、销量、市场订
 
 `new-erp-scripts` 提供 ERP 查询和导出命令，不创建或修改业务单据；导出会在 ERP 下载中心创建任务。
 
+CLI 统一使用 `new-erp <subcommand>`。先运行 `new-erp --help` 发现命令，再用 `new-erp <subcommand> --help` 查看参数。
+
 ```sh
-new-erp-game-product-list --help
-new-erp-game-product-list --sku DEMO-SKU-001
-new-erp-options --source packing
+new-erp game-product-list --help
+new-erp game-product-list --sku DEMO-SKU-001
+new-erp options --source packing
 ```
 
 按 [命令与数据口径](references/query-guide.md#命令选择) 选择能力，再用对应命令的 `--help` 确认输入。选项支持 `--option value` 和 `--option=value`。涉及销量汇总、实际入库、库存、BOM/包装版本或重量换算时，先读参考中的对应口径。
@@ -27,8 +29,8 @@ new-erp-options --source packing
 ## 装箱与导出
 
 ```sh
-new-erp-packing-order-list --packingNo YOUR-ORDER --stockFrom DEMO-FROM --fetchAll
-new-erp-packing-order-pages --project DEMO-PROJECT --warehouses DEMO-DEST --startDate 2026-07-01 --endDate 2026-09-30 --pageSize 100
+new-erp packing-order-list --packingNo YOUR-ORDER --stockFrom DEMO-FROM --fetchAll
+new-erp packing-order-pages --project DEMO-PROJECT --warehouses DEMO-DEST --startDate 2026-07-01 --endDate 2026-09-30 --pageSize 100
 ```
 
 列表支持精确总单号，或完整的项目、目的仓、开始及结束日期；历史四项只要传一项就必须齐全。`--stockFrom` 只能收窄查询。逐页命令从第1页串行读取，不传 `--fetchAll`；大范围按项目、月份拆分。
@@ -40,10 +42,10 @@ new-erp-packing-order-pages --project DEMO-PROJECT --warehouses DEMO-DEST --star
 需要 Node.js 18+。已有 CLI 时直接调用；未安装时可从 GitHub 直接运行：
 
 ```sh
-npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp-game-product-list --help
+npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp game-product-list --help
 ```
 
-替换末尾命令和选项即可查询。经常使用时用 `npm install -g "git+https://github.com/PIZZAxBOY/new-erp-scripts.git"` 安装；已有源码也可在仓库根目录执行 `npm install -g .` 或 `node scripts/<command>.js`。GitHub 方式需要 Git，可通过 HTTPS 访问公开仓库；固定版本可在地址末尾追加 `#<提交号或标签>`。
+替换末尾命令和选项即可查询。经常使用时用 `npm install -g "git+https://github.com/PIZZAxBOY/new-erp-scripts.git"` 安装；已有源码也可在仓库根目录执行 `npm install -g .` 或 `node scripts/new-erp.js <command>`。GitHub 方式需要 Git，可通过 HTTPS 访问公开仓库；固定版本可在地址末尾追加 `#<提交号或标签>`。
 
 单独安装本技能不会安装运行代码。不要从技能目录推断脚本路径。
 
