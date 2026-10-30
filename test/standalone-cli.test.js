@@ -9,6 +9,7 @@ const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
 const scriptsRoot = path.join(root, 'scripts');
 const scripts = [
+  'market-order-list.js',
   'catalog-list.js',
   'category-summary.js',
   'game-product-batch.js',
@@ -36,6 +37,7 @@ const scripts = [
 test('package exposes callable functions through ES module imports', async () => {
   const api = await import('new-erp-scripts');
   assert.deepEqual(Object.keys(api).sort(), [
+    'marketOrderList',
     'catalogList', 'categorySummary', 'exportGameProducts', 'exportOuterPackages', 'gameProductBatch', 'gameProductList',
     'productDetail', 'salesVolumeExport', 'salesVolumeRanking', 'erpClient',
     'stockingAssemblyInbound', 'supplyEvidence', 'packingOrderList', 'exportPackingDetails',
@@ -47,7 +49,7 @@ test('package exposes callable functions through ES module imports', async () =>
   await assert.rejects(api.salesVolumeRanking({ startDate: 'bad', endDate: '2026-01-01' }), /startDate/);
 });
 
-test('packed npm package installs working commands, API and separate skill metadata', async () => {
+test('packed npm package installs one unified command, API and separate skill metadata', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-package-test-'));
   try {
     const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], {
@@ -71,12 +73,40 @@ test('packed npm package installs working commands, API and separate skill metad
     assert.deepEqual(JSON.parse(imported.stdout), Object.keys(await import('new-erp-scripts')).sort());
     const packageRoot = path.join(directory, 'node_modules', 'new-erp-scripts');
     const manifest = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
-    for (const command of Object.keys(manifest.bin)) {
-      const help = spawnSync(path.join(directory, 'node_modules', '.bin', command), ['--help'], {
+    assert.deepEqual(Object.keys(manifest.bin), ['new-erp']);
+    assert.equal(manifest.bin['new-erp'], 'scripts/new-erp.js');
+    assert.equal(scripts.length, 22);
+    const cli = path.join(directory, 'node_modules', '.bin', 'new-erp');
+    const topHelp = spawnSync(cli, [], { cwd: directory, encoding: 'utf8' });
+    assert.equal(topHelp.status, 0, topHelp.stderr || topHelp.error);
+    assert.match(topHelp.stdout, /^Usage: new-erp <command> \[options\]/m);
+    const topHelpLines = topHelp.stdout.split('\n');
+    const commandStart = topHelpLines.indexOf('Commands:') + 1;
+    const commandEnd = topHelpLines.indexOf('', commandStart);
+    const listedCommands = topHelpLines.slice(commandStart, commandEnd);
+    assert.deepEqual(listedCommands.map((line) => line.trim().split(/\s+/)[0]),
+      scripts.map(commandForScript));
+    assert.ok(listedCommands.every((line) => line.trim().length > line.trim().split(/\s+/)[0].length));
+    for (const args of [['--help'], ['-h']]) {
+      const result = spawnSync(cli, args, { cwd: directory, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr || result.error);
+      assert.match(result.stdout, /^Usage: new-erp <command> \[options\]/m);
+    }
+    for (const script of scripts) {
+      const command = commandForScript(script);
+      assert.ok(topHelp.stdout.includes(command), command);
+      const help = spawnSync(cli, [command, '--help'], {
         cwd: directory, encoding: 'utf8',
       });
       assert.equal(help.status, 0, `${command}: ${help.stderr || help.error}`);
-      assert.match(help.stdout, /^Usage:/m);
+      assert.equal(help.stdout.split('\n')[0], `Usage: new-erp ${command} [options]`);
+    }
+    const secret = 'DO-NOT-ECHO-CLI-TOKEN-123';
+    for (const args of [[secret], [`--token=${secret}`], ['--help', secret]]) {
+      const result = spawnSync(cli, args, { cwd: directory, encoding: 'utf8' });
+      assert.notEqual(result.status, 0);
+      assert.doesNotMatch(result.stdout + result.stderr, new RegExp(secret));
+      assert.match(result.stderr, /new-erp --help/);
     }
     await fs.access(path.join(packageRoot, 'skills', 'new-erp-scripts', 'SKILL.md'));
     await fs.access(path.join(packageRoot, 'skills', 'new-erp-scripts', 'agents', 'openai.yaml'));
@@ -189,7 +219,11 @@ test('stocking inbound counts only linked backup assembly receipts for the exact
 
 function runScript(script, args, env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(scriptsRoot, script), ...args], {
+    const child = spawn(process.execPath, [
+      path.join(scriptsRoot, 'new-erp.js'),
+      commandForScript(script),
+      ...args,
+    ], {
       cwd: root,
       env,
     });
@@ -200,6 +234,11 @@ function runScript(script, args, env) {
     child.on('error', reject);
     child.on('close', (status) => resolve({ status, stdout, stderr }));
   });
+}
+
+function commandForScript(script) {
+  const command = script.replace(/\.js$/, '');
+  return command === 'erp-options' ? 'options' : command;
 }
 
 test('packing APIs preserve scope and export only the matching native task', async (t) => {
@@ -329,22 +368,25 @@ test('packing APIs preserve scope and export only the matching native task', asy
   }
 });
 
-test('each command exposes a standalone help screen', () => {
+test('each subcommand exposes unified help', () => {
   for (const script of scripts) {
-    const result = spawnSync(process.execPath, [path.join(scriptsRoot, script), '--help'], {
+    const command = commandForScript(script);
+    const result = spawnSync(process.execPath, [
+      path.join(scriptsRoot, 'new-erp.js'), command, '--help',
+    ], {
       cwd: root,
       encoding: 'utf8',
     });
 
     assert.equal(result.status, 0, `${script} failed: ${result.stderr}`);
-    assert.match(result.stdout, /^Usage:/m);
-    assert.match(result.stdout, new RegExp(script.replace('.js', '')));
+    assert.equal(result.stdout.split('\n')[0], `Usage: new-erp ${command} [options]`);
   }
 });
 
 test('invalid input fails without contacting the ERP', () => {
   const result = spawnSync(process.execPath, [
-    path.join(scriptsRoot, 'sales-volume-ranking.js'),
+    path.join(scriptsRoot, 'new-erp.js'),
+    'sales-volume-ranking',
     '--startDate', 'not-a-date',
     '--endDate', '2026-01-01',
   ], {
@@ -353,6 +395,7 @@ test('invalid input fails without contacting the ERP', () => {
   });
 
   assert.notEqual(result.status, 0);
+  assert.equal(result.status, 1);
   assert.match(result.stderr, /startDate/);
 });
 

@@ -6,51 +6,63 @@
 
 | 用户需求 | 命令 |
 | --- | --- |
-| 查找商品分类或分类 ID | `new-erp-catalog-list` |
-| 按 SKU、中文名称、类型或分类搜索商品 | `new-erp-game-product-list` |
-| 一次查询多个 SKU | `new-erp-game-product-batch` |
-| 按商品 ID 查看单个商品 | `new-erp-product-detail` |
-| 按日期范围统计 SKU 销量排名，精确查 SKU 或按 SKU+平台拆分 | `new-erp-sales-volume-ranking` |
-| 大范围异步导出 SKU、SKU+平台或平台销量 CSV | `new-erp-sales-volume-export` |
-| 查询销售计划、搬运计划、成品出入库、组装计划或货物流转单据 | `new-erp-supply-evidence` |
-| 按 SKU 和日期统计备货拼装的实际入库数量 | `new-erp-stocking-assembly-inbound` |
-| 按精确总单号或完整历史范围查询装箱单列表 | `new-erp-packing-order-list` |
-| 串行读取全部装箱分页，每页输出一行 JSON | `new-erp-packing-order-pages` |
-| 按原箱号、发货仓、状态和目的仓读取单箱明细 | `new-erp-packing-detail` |
-| 按总单号和发货仓查询历史配货明细 | `new-erp-plan-delivery-order-list` |
-| 原生导出完整装箱明细（SKU、数量、渠道、箱重和尺寸） | `new-erp-packing-detail-export` |
-| 查询实际配货批次，默认已配货待装箱 | `new-erp-packing-batch-list --stockFrom DEMO-FROM` |
-| 读取批次SKU、数量和BOM/版本原字段 | `new-erp-packing-batch-detail --stockFrom DEMO-FROM --batchNo <批次号>` |
-| 查询方装/异装多版本箱规和单箱容量 | `new-erp-outer-package-list --flowStatus 2 --sku <SKU>` |
-| 按SKU、国内仓查询库存批次/BOM或仓库汇总 | `new-erp-inventory-list --sku <SKU> --stockCode DEMO-STOCK` |
-| 查询头程渠道、运输方式和材积除数 | `new-erp-logistics-channel-list` |
-| 查询SKU/国家申报主数据 | `new-erp-product-declaration-list --sku <SKU> --country US` |
-| 读取实时库存/装箱枚举或配货仓列表 | `new-erp-options --source inventory` |
-| 按 ERP 分类统计匹配的 SKU 销售记录数 | `new-erp-category-summary` |
+| 获取市场订单，按系统单号、红人编码、邮箱、跟踪号或 SKU 搜索 | `new-erp market-order-list` |
+| 查找商品分类或分类 ID | `new-erp catalog-list` |
+| 按 SKU、中文名称、类型或分类搜索商品 | `new-erp game-product-list` |
+| 一次查询多个 SKU | `new-erp game-product-batch` |
+| 按商品 ID 查看单个商品 | `new-erp product-detail` |
+| 按日期范围统计 SKU 销量排名，精确查 SKU 或按 SKU+平台拆分 | `new-erp sales-volume-ranking` |
+| 大范围异步导出 SKU、SKU+平台或平台销量 CSV | `new-erp sales-volume-export` |
+| 查询销售计划、搬运计划、成品出入库、组装计划或货物流转单据 | `new-erp supply-evidence` |
+| 按 SKU 和日期统计备货拼装的实际入库数量 | `new-erp stocking-assembly-inbound` |
+| 按精确总单号或完整历史范围查询装箱单列表 | `new-erp packing-order-list` |
+| 串行读取全部装箱分页，每页输出一行 JSON | `new-erp packing-order-pages` |
+| 按原箱号、发货仓、状态和目的仓读取单箱明细 | `new-erp packing-detail` |
+| 按总单号和发货仓查询历史配货明细 | `new-erp plan-delivery-order-list` |
+| 原生导出完整装箱明细（SKU、数量、渠道、箱重和尺寸） | `new-erp packing-detail-export` |
+| 查询实际配货批次，默认已配货待装箱 | `new-erp packing-batch-list --stockFrom DEMO-FROM` |
+| 读取批次SKU、数量和BOM/版本原字段 | `new-erp packing-batch-detail --stockFrom DEMO-FROM --batchNo <批次号>` |
+| 查询方装/异装多版本箱规和单箱容量 | `new-erp outer-package-list --flowStatus 2 --sku <SKU>` |
+| 按SKU、国内仓查询库存批次/BOM或仓库汇总 | `new-erp inventory-list --sku <SKU> --stockCode DEMO-STOCK` |
+| 查询头程渠道、运输方式和材积除数 | `new-erp logistics-channel-list` |
+| 查询SKU/国家申报主数据 | `new-erp product-declaration-list --sku <SKU> --country US` |
+| 读取实时库存/装箱枚举或配货仓列表 | `new-erp options --source inventory` |
+| 按 ERP 分类统计匹配的 SKU 销售记录数 | `new-erp category-summary` |
 
+
+## 市场订单
+
+```sh
+new-erp market-order-list --searchValue DEMO-ORDER-ID
+new-erp market-order-list --searchType 6 --searchValue DEMO-SKU-001 --fetchAll
+```
+
+`searchType`：1跟踪号、2转单号、3系统单号（默认）、4红人编码、5邮箱、6 SKU；必须与非空 `searchValue` 配合。还可传 `project`、`status`、`transactionId`，未传状态时查询全部状态。系统单号对应 `id`，交易号对应 `transaction_id`，不要混用平台单号 `item_no`。搜索按 ERP 原生匹配规则，不在本地二次筛选。
+
+只读市场订单列表，不创建、修改或导出订单。保留原始订单、SKU 明细、物流信息和响应枚举（如 `order_status_map`），金额、数量及空值不自动转换。分页规则与其他列表一致，按订单 ID 检查重复。无筛选默认只查第一页，不代表全量；买家信息和搜索条件可能含个人信息，对外分享前脱敏。
 
 ## 查询示例与统计口径
 
 ```bash
-new-erp-catalog-list --keyword 游戏内配
-new-erp-game-product-list --sku DEMO-SKU-001
-new-erp-game-product-batch --skus 'SKU-A,SKU-B'
-new-erp-product-detail --id 12345
-new-erp-sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31
-new-erp-sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31 --sku DEMO-SKU-002 --aggregateBy sku-platform
-new-erp-sales-volume-export --startDate 2026-01-01 --endDate 2026-01-31 --aggregateBy platform --output ./platform-2026-01.csv
-new-erp-supply-evidence --source plan --sku DEMO-SKU-002 --startDate 2026-01-01 --endDate 2026-03-31 --fetchAll
-new-erp-supply-evidence --source move --sku DEMO-SKU-002 --startDate 2026-01-01 --endDate 2026-03-31 --fetchAll
-new-erp-supply-evidence --source inventory --sku DEMO-SKU-002 --startDate 2026-01-01 --endDate 2026-03-31 --fetchAll
-new-erp-supply-evidence --source assembly --sku DEMO-SKU-002 --fetchAll
-new-erp-supply-evidence --source cargo --sku DEMO-SKU-002 --fetchAll
-new-erp-stocking-assembly-inbound --sku DEMO-SKU-002 --startDate 2026-08-30 --endDate 2026-09-28
-new-erp-packing-order-list --project DEMO-PROJECT --warehouses 'DEMO-DEST' --startDate 2026-07-01 --endDate 2026-09-30
-new-erp-packing-order-list --packingNo YOUR-ORDER --stockFrom DEMO-FROM --fetchAll --pageSize 100
-new-erp-packing-order-pages --project DEMO-PROJECT --warehouses 'DEMO-DEST' --startDate 2026-07-01 --endDate 2026-09-30 --pageSize 100
-new-erp-plan-delivery-order-list --stockFrom DEMO-FROM --packingNo YOUR-ORDER --fetchAll
-new-erp-packing-detail-export --project DEMO-PROJECT --warehouses 'DEMO-DEST' --startDate 2026-07-01 --endDate 2026-09-30 --output ./packing.xlsx
-new-erp-category-summary --startDate 2026-01-01 --endDate 2026-01-31
+new-erp catalog-list --keyword 游戏内配
+new-erp game-product-list --sku DEMO-SKU-001
+new-erp game-product-batch --skus 'SKU-A,SKU-B'
+new-erp product-detail --id 12345
+new-erp sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31
+new-erp sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31 --sku DEMO-SKU-002 --aggregateBy sku-platform
+new-erp sales-volume-export --startDate 2026-01-01 --endDate 2026-01-31 --aggregateBy platform --output ./platform-2026-01.csv
+new-erp supply-evidence --source plan --sku DEMO-SKU-002 --startDate 2026-01-01 --endDate 2026-03-31 --fetchAll
+new-erp supply-evidence --source move --sku DEMO-SKU-002 --startDate 2026-01-01 --endDate 2026-03-31 --fetchAll
+new-erp supply-evidence --source inventory --sku DEMO-SKU-002 --startDate 2026-01-01 --endDate 2026-03-31 --fetchAll
+new-erp supply-evidence --source assembly --sku DEMO-SKU-002 --fetchAll
+new-erp supply-evidence --source cargo --sku DEMO-SKU-002 --fetchAll
+new-erp stocking-assembly-inbound --sku DEMO-SKU-002 --startDate 2026-08-30 --endDate 2026-09-28
+new-erp packing-order-list --project DEMO-PROJECT --warehouses 'DEMO-DEST' --startDate 2026-07-01 --endDate 2026-09-30
+new-erp packing-order-list --packingNo YOUR-ORDER --stockFrom DEMO-FROM --fetchAll --pageSize 100
+new-erp packing-order-pages --project DEMO-PROJECT --warehouses 'DEMO-DEST' --startDate 2026-07-01 --endDate 2026-09-30 --pageSize 100
+new-erp plan-delivery-order-list --stockFrom DEMO-FROM --packingNo YOUR-ORDER --fetchAll
+new-erp packing-detail-export --project DEMO-PROJECT --warehouses 'DEMO-DEST' --startDate 2026-07-01 --endDate 2026-09-30 --output ./packing.xlsx
+new-erp category-summary --startDate 2026-01-01 --endDate 2026-01-31
 ```
 
 单个父级分类 ID 会使用 ERP 实时分类树自动展开。只填写日期时，开始时间使用 `00:00:00`，结束时间使用 `23:59:59`。`sales-volume-ranking` 默认返回 ERP 排序后的一个分页。需要完整结果并重新排序时，使用 `--fetchAll true`。`category-summary` 始终获取整个匹配范围，统计的是记录行数，不是销售数量。
@@ -67,7 +79,7 @@ new-erp-category-summary --startDate 2026-01-01 --endDate 2026-01-31
 
 `packing-order-list` 和 `packing-order-pages` 支持精确总单号 `--packingNo` 单独查询，或完整历史范围 `--project + --warehouses + --startDate + --endDate`；两种范围可叠加。只要传入任一历史范围字段，四项就必须齐全。`--stockFrom` 只能收窄查询，不能单独使用；显式传入空的总单号或发货仓会报错。
 
-历史范围的目的仓必须使用完整名称，不重复、不含空白，以逗号分隔；允许明确指定非FBA仓。用 `new-erp-options --source packing` 获取 `data.site_type_list` 目的仓枚举和 `data.auction_site_list` 项目枚举。日期按扫描出库时间（`time_type=out_time`），默认状态不限。
+历史范围的目的仓必须使用完整名称，不重复、不含空白，以逗号分隔；允许明确指定非FBA仓。用 `new-erp options --source packing` 获取 `data.site_type_list` 目的仓枚举和 `data.auction_site_list` 项目枚举。日期按扫描出库时间（`time_type=out_time`），默认状态不限。
 
 `packing-order-list` 默认单页，加 `--fetchAll` 才收集全量箱记录，列表本身不提供完整 SKU 明细。大范围历史优先按项目、月份拆分，使用 `packing-order-pages --pageSize 100` 逐页处理；该命令始终从第1页读取，不传 `--fetchAll`，每页的 `fetchedCount` 是累计箱数，`complete` 表示是否末页。它串行请求、没有预取，内存保留当前页和本次已读记录的去重键；提前停止消费不再发起后续请求。两个全量入口均受 `maxPages` 限制，第一请求发现所需页数超限即报错。
 

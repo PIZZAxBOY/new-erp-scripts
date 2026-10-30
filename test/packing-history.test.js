@@ -383,8 +383,10 @@ test('packing pages CLI emits parseable per-page NDJSON and new read CLIs map op
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
-  const run = (script, args) => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(__dirname, '..', 'scripts', script), '--token', 'test-token', ...args],
+  const run = (command, args) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [
+      path.join(__dirname, '..', 'scripts', 'new-erp.js'), command, '--token', 'test-token', ...args,
+    ],
       { env: { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` } });
     let stdout = '', stderr = '';
     child.stdout.on('data', (b) => { stdout += b; });
@@ -392,12 +394,12 @@ test('packing pages CLI emits parseable per-page NDJSON and new read CLIs map op
     child.on('error', reject);
     child.on('close', (code) => { try { assert.equal(code, 0, stderr); resolve(stdout); } catch (error) { reject(error); } });
   });
-  const output = await run('packing-order-pages.js', ['--packingNo', 'ORDER-1', '--stockFrom', 'DEMO-FROM', '--pageSize', '2']);
+  const output = await run('packing-order-pages', ['--packingNo', 'ORDER-1', '--stockFrom', 'DEMO-FROM', '--pageSize', '2']);
   const pages = output.trim().split('\n').map((line) => JSON.parse(line));
   assert.deepEqual(pages.map((p) => [p.page, p.list.length, p.complete]), [[1, 2, false], [2, 1, true]]);
-  const delivery = JSON.parse(await run('plan-delivery-order-list.js', ['--packingNo', 'ORDER-1', '--stockFrom', 'DEMO-FROM', '--fetchAll', '--pageSize', '2']));
+  const delivery = JSON.parse(await run('plan-delivery-order-list', ['--packingNo', 'ORDER-1', '--stockFrom', 'DEMO-FROM', '--fetchAll', '--pageSize', '2']));
   assert.equal(delivery.list.length, 3);
   assert.equal(delivery.complete, true);
-  const detail = JSON.parse(await run('packing-detail.js', ['--packingNumNo', 'BOX-1', '--stockFrom', 'DEMO-FROM', '--siteType', 'DEMO-DEST-UK', '--status', '0']));
+  const detail = JSON.parse(await run('packing-detail', ['--packingNumNo', 'BOX-1', '--stockFrom', 'DEMO-FROM', '--siteType', 'DEMO-DEST-UK', '--status', '0']));
   assert.equal(detail.packing_num_no, 'BOX-1');
 });

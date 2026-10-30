@@ -2,13 +2,13 @@
 
 > 通过命令行和 JavaScript 查询 new-erp 数据，供人和 AI Agent 使用。
 
-覆盖商品、销量、库存、配货、装箱和物流申报。查询结果可直接处理为 JSON，批量导出保留 ERP 原生 CSV/XLSX；支持完整分页、逐页读取和装箱导出任务恢复。
+覆盖商品、销量、市场订单、库存、配货、装箱和物流申报。查询结果可直接处理为 JSON，批量导出保留 ERP 原生 CSV/XLSX；支持完整分页、逐页读取和装箱导出任务恢复。
 
 所有命令只查询或导出数据，不创建或修改业务单据。导出会在 ERP 下载中心创建任务。
 
 ## 快速开始
 
-以下 SKU、ID、项目及仓库均为脱敏示例；使用时替换为有权限访问的真实值。项目和仓库代码可通过 `new-erp-options` 查询。
+以下 SKU、ID、项目及仓库均为脱敏示例；使用时替换为有权限访问的真实值。项目和仓库代码可通过 `new-erp options` 查询。
 
 ### 1. 安装命令行工具
 
@@ -17,13 +17,13 @@
 ```sh
 node --version
 npm install -g "git+https://github.com/PIZZAxBOY/new-erp-scripts.git"
-new-erp-game-product-list --help
+new-erp game-product-list --help
 ```
 
 也可以通过 `npx` 直接运行，替换末尾命令和选项即可：
 
 ```sh
-npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp-game-product-list --help
+npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp game-product-list --help
 ```
 
 需要固定版本时，在 Git 地址末尾追加 `#<提交号或标签>`。
@@ -44,38 +44,44 @@ npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp-gam
 ### 3. 执行查询
 
 ```sh
-new-erp-game-product-list --sku DEMO-SKU-001
-new-erp-product-detail --id 12345
-new-erp-sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31
+new-erp game-product-list --sku DEMO-SKU-001
+new-erp product-detail --id 12345
+new-erp sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31
 ```
 
 ## 命令行使用
+
+所有已安装命令统一通过 `new-erp <subcommand>` 调用。运行 `new-erp --help` 查看可用命令和简要说明，运行 `new-erp <subcommand> --help` 查看具体参数。迁移提示：原来独立调用 `new-erp-foo` 的方式改为 `new-erp foo`；安装包仅提供统一入口。
 
 每个命令都支持 `--help`、`--option value` 和 `--option=value`。先查看帮助确认所需参数。
 
 ```sh
 # 批量查商品
-new-erp-game-product-batch --skus 'SKU-A,SKU-B'
+new-erp game-product-batch --skus 'SKU-A,SKU-B'
+
+# 查市场订单：默认搜索系统单号；searchType 6 按 SKU 搜索
+new-erp market-order-list --searchValue DEMO-ORDER-ID
+new-erp market-order-list --searchType 6 --searchValue DEMO-SKU-001 --fetchAll
 
 # 查国内仓的库存批次与 BOM
-new-erp-inventory-list --sku DEMO-SKU-003 --stockCode DEMO-STOCK --fetchAll
+new-erp inventory-list --sku DEMO-SKU-003 --stockCode DEMO-STOCK --fetchAll
 
 # 按总单号查询装箱列表
-new-erp-packing-order-list --packingNo YOUR-ORDER --stockFrom DEMO-FROM --fetchAll
+new-erp packing-order-list --packingNo YOUR-ORDER --stockFrom DEMO-FROM --fetchAll
 
 # 导出平台销量，保留 ERP 的 GBK CSV
-new-erp-sales-volume-export --startDate 2026-01-01 --endDate 2026-01-31 --aggregateBy platform --output ./platform-2026-01.csv
+new-erp sales-volume-export --startDate 2026-01-01 --endDate 2026-01-31 --aggregateBy platform --output ./platform-2026-01.csv
 ```
 
-成功结果写入 stdout，通常为 JSON 数组或对象；错误写入 stderr，并以非零状态退出。`new-erp-packing-order-pages` 每页输出一行 JSON（NDJSON），需按行处理。
+成功结果写入 stdout，通常为 JSON 数组或对象；错误写入 stderr，并以非零状态退出。`new-erp packing-order-pages` 每页输出一行 JSON（NDJSON），需按行处理。
 
-装箱、配货、库存等列表默认第1页20条，返回 `list/totalCount/fetchedCount/complete/source`。完整查询使用 `--fetchAll` 并从第1页开始；`--pageSize` 最多100，`--maxPages` 默认100、最多1000。分页截断、重复记录或总数变化会报错。
+市场订单、装箱、配货、库存等列表默认第1页20条，返回 `list/totalCount/fetchedCount/complete/source`。完整查询使用 `--fetchAll` 并从第1页开始；`--pageSize` 最多100，`--maxPages` 默认100、最多1000。分页截断、重复记录或总数变化会报错。
 
 大范围装箱历史可逐页读取，按项目和月份拆分：
 
 ```sh
-new-erp-packing-order-pages --project DEMO-PROJECT --warehouses DEMO-DEST --startDate 2026-07-01 --endDate 2026-07-31 --pageSize 100
-new-erp-packing-detail-export --project DEMO-PROJECT --warehouses DEMO-DEST --startDate 2026-07-01 --endDate 2026-07-31 --output ./packing-2026-07.xlsx
+new-erp packing-order-pages --project DEMO-PROJECT --warehouses DEMO-DEST --startDate 2026-07-01 --endDate 2026-07-31 --pageSize 100
+new-erp packing-detail-export --project DEMO-PROJECT --warehouses DEMO-DEST --startDate 2026-07-01 --endDate 2026-07-31 --output ./packing-2026-07.xlsx
 ```
 
 装箱列表支持精确总单号查询；批量明细导出仍需完整的项目、目的仓、开始和结束日期。导出不覆盖已有文件，装箱导出可用 `--taskId` 恢复原任务。范围限制和数据口径见 [查询指南](./skills/new-erp-scripts/references/query-guide.md)。
@@ -141,13 +147,13 @@ const sales = await salesVolumeRanking({
 
 | 范围 | 命令 |
 | --- | --- |
-| 商品与分类 | `new-erp-catalog-list`、`new-erp-game-product-list`、`new-erp-game-product-batch`、`new-erp-product-detail` |
-| 销量与汇总 | `new-erp-sales-volume-ranking`、`new-erp-sales-volume-export`、`new-erp-category-summary` |
-| 单据与实际入库 | `new-erp-supply-evidence`、`new-erp-stocking-assembly-inbound` |
-| 装箱历史与导出 | `new-erp-packing-order-list`、`new-erp-packing-order-pages`、`new-erp-packing-detail`、`new-erp-packing-detail-export` |
-| 配货批次与历史明细 | `new-erp-packing-batch-list`、`new-erp-packing-batch-detail`、`new-erp-plan-delivery-order-list` |
-| 库存与包装 | `new-erp-inventory-list`、`new-erp-outer-package-list` |
-| 物流、申报与枚举 | `new-erp-logistics-channel-list`、`new-erp-product-declaration-list`、`new-erp-options` |
+| 商品与分类 | `new-erp catalog-list`、`new-erp game-product-list`、`new-erp game-product-batch`、`new-erp product-detail` |
+| 销量与汇总 | `new-erp sales-volume-ranking`、`new-erp sales-volume-export`、`new-erp category-summary` |
+| 单据与实际入库 | `new-erp supply-evidence`、`new-erp stocking-assembly-inbound` |
+| 装箱历史与导出 | `new-erp packing-order-list`、`new-erp packing-order-pages`、`new-erp packing-detail`、`new-erp packing-detail-export` |
+| 配货批次与历史明细 | `new-erp packing-batch-list`、`new-erp packing-batch-detail`、`new-erp plan-delivery-order-list` |
+| 库存与包装 | `new-erp inventory-list`、`new-erp outer-package-list` |
+| 物流、申报与枚举 | `new-erp logistics-channel-list`、`new-erp product-declaration-list`、`new-erp options` |
 
 各命令的必填选项和适用场景见 [查询指南](./skills/new-erp-scripts/references/query-guide.md#命令选择)。库存预测量、计划单据、BOM 版本和重量单位各有不同口径，汇总前请核对来源。
 
@@ -161,7 +167,7 @@ docs/                       # API 与数据口径
 test/                       # 自动化测试
 ```
 
-在仓库根目录可用 `node scripts/<command>.js` 运行，或用 `npm install -g .` 安装本地版本。验证命令：
+在仓库根目录可用 `node scripts/new-erp.js <command>` 运行，或用 `npm install -g .` 安装本地版本。验证命令：
 
 ```sh
 npm test
