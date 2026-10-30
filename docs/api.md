@@ -23,6 +23,29 @@
 
 销量导出只复用查询条件完全匹配且没有额外非空筛选的任务。商品、外包装和装箱导出拒绝多个匹配的新任务，并在识别任务后固定任务ID，避免后续轮询切换到其他任务。
 
+## 市场订单
+
+`marketOrderList(options)` / `new-erp-market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 [submitter 接口文档](https://github.com/PIZZAxBOY/submitter/blob/main/APIreference.md) 及 ERP 前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
+
+| 选项 | ERP 参数与含义 |
+| --- | --- |
+| `searchValue` | `search_value`，搜索内容；有值时 `searchType` 默认为 `3` |
+| `searchType` | `search_type`：`1` 跟踪号、`2` 转单号、`3` 系统单号（订单 `id`）、`4` 红人编码、`5` 邮箱、`6` SKU；指定时必须提供非空 `searchValue` |
+| `project` | `auction_site`，ERP 项目代码 |
+| `status` | `order_status`，默认 `''` 查询全部状态；支持数字或数字字符串，包括 `0` 和负值；具体含义读取响应的 `order_status_map`，不推断状态 |
+| `transactionId` | `transaction_id`，交易号，不是系统单号 `id` 或平台单号 `item_no` |
+
+未传筛选条件时查询全部状态的第一页；匹配方式遵循 ERP 原生搜索规则，不额外承诺精确匹配或在本地过滤。支持标准 `page/pageSize/fetchAll/maxPages`：默认第1页20条、每页最多100条，全量从第1页开始，默认最多100页、上限1000页。返回 `{ list, totalCount, fetchedCount, complete, source, ...ERP元数据 }`，按订单 `id` 检查重复，缺少 ID、分页截断或总数变化时报错。空列表正常返回；认证或权限失败不当作空列表。
+
+订单原字段（含 `sku_qty`、`product_all_info`、`track_number`、`order_status` 等）及实时枚举保持原样，不展开 SKU、不转换金额或空值。ERP 元数据保留首页值，不重新计算汇总。订单可能包含买家地址、邮箱等个人信息，查询结果和 `source.query` 中的搜索内容对外分享前须脱敏。
+
+```js
+import { marketOrderList } from 'new-erp-scripts';
+
+const orders = await marketOrderList({ searchType: '6', searchValue: 'DEMO-SKU-001', fetchAll: true });
+const order = await marketOrderList({ searchValue: 'DEMO-ORDER-ID' });
+```
+
 ## 装箱历史与批量导出
 
 `packingOrderList(options)` 支持两种范围：完整的 `project + warehouses + startDate + endDate`（扫描出库时间），或单独的精确总单号 `packingNo`。两种范围可叠加，`stockFrom` 只用于收窄，不能单独查询。传入任何历史范围字段时四项都必须完整；显式传入空的 `packingNo` 或 `stockFrom` 会报错，不忽略条件。`warehouses` 是完整目的仓名称数组或逗号分隔字符串，必须非空、不重复且无空白，允许指定非 FBA 仓。目的仓完整枚举由 `erpOptions({ source: 'packing' })` 的 `data.site_type_list` 提供，项目枚举为 `data.auction_site_list`。

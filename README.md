@@ -2,7 +2,7 @@
 
 > 通过命令行和 JavaScript 查询 new-erp 数据，供人和 AI Agent 使用。
 
-覆盖商品、销量、库存、配货、装箱和物流申报。查询结果可直接处理为 JSON，批量导出保留 ERP 原生 CSV/XLSX；支持完整分页、逐页读取和装箱导出任务恢复。
+覆盖商品、销量、市场订单、库存、配货、装箱和物流申报。查询结果可直接处理为 JSON，批量导出保留 ERP 原生 CSV/XLSX；支持完整分页、逐页读取和装箱导出任务恢复。
 
 所有命令只查询或导出数据，不创建或修改业务单据。导出会在 ERP 下载中心创建任务。
 
@@ -57,6 +57,10 @@ new-erp-sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31
 # 批量查商品
 new-erp-game-product-batch --skus 'SKU-A,SKU-B'
 
+# 查市场订单：默认搜索系统单号；searchType 6 按 SKU 搜索
+new-erp-market-order-list --searchValue DEMO-ORDER-ID
+new-erp-market-order-list --searchType 6 --searchValue DEMO-SKU-001 --fetchAll
+
 # 查国内仓的库存批次与 BOM
 new-erp-inventory-list --sku DEMO-SKU-003 --stockCode DEMO-STOCK --fetchAll
 
@@ -69,7 +73,7 @@ new-erp-sales-volume-export --startDate 2026-01-01 --endDate 2026-01-31 --aggreg
 
 成功结果写入 stdout，通常为 JSON 数组或对象；错误写入 stderr，并以非零状态退出。`new-erp-packing-order-pages` 每页输出一行 JSON（NDJSON），需按行处理。
 
-装箱、配货、库存等列表默认第1页20条，返回 `list/totalCount/fetchedCount/complete/source`。完整查询使用 `--fetchAll` 并从第1页开始；`--pageSize` 最多100，`--maxPages` 默认100、最多1000。分页截断、重复记录或总数变化会报错。
+市场订单、装箱、配货、库存等列表默认第1页20条，返回 `list/totalCount/fetchedCount/complete/source`。完整查询使用 `--fetchAll` 并从第1页开始；`--pageSize` 最多100，`--maxPages` 默认100、最多1000。分页截断、重复记录或总数变化会报错。
 
 大范围装箱历史可逐页读取，按项目和月份拆分：
 

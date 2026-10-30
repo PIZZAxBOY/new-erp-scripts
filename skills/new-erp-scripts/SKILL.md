@@ -1,6 +1,6 @@
 ---
 name: new-erp-scripts
-description: "通过命令行查询和导出 new-erp 商品、销量、库存、配货及装箱数据。选择命令、读取分页结果、核对数据口径并恢复导出任务。"
+description: "通过命令行查询和导出 new-erp 商品、销量、市场订单、库存、配货及装箱数据。选择命令、读取分页结果、核对数据口径并恢复导出任务。"
 ---
 # new-erp
 
@@ -20,7 +20,7 @@ new-erp-options --source packing
 
 成功结果写入 stdout，通常是 JSON 数组或对象；列表以 `list` 保存记录。失败在 stderr 输出错误并以非零状态退出，不能把失败当作空结果。`packing-order-pages` 输出 NDJSON，每页一行，按行解析。
 
-装箱、历史配货、批次、外包装、库存、物流渠道及报关列表返回 `totalCount/fetchedCount/complete/source`。默认第1页20条；全量查询传 `--fetchAll`，并从第1页开始。`--pageSize` 最多100，`--maxPages` 默认100、最多1000。检查完整性，保留分页异常，不把单页或截断结果当作全量。
+市场订单、装箱、历史配货、批次、外包装、库存、物流渠道及报关列表返回 `totalCount/fetchedCount/complete/source`。默认第1页20条；全量查询传 `--fetchAll`，并从第1页开始。`--pageSize` 最多100，`--maxPages` 默认100、最多1000。检查完整性，保留分页异常，不把单页或截断结果当作全量。
 
 库存预测量不是实际签收量，计划单不是完成凭证；保留不同批次、BOM和包装版本，不自动选首条。尺寸重量保留来源原值，未知单位或数量不补造。具体字段见 [数据口径](references/query-guide.md#装箱数据口径)。
 

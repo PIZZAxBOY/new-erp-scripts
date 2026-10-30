@@ -9,6 +9,7 @@ const { test } = require('node:test');
 const root = path.resolve(__dirname, '..');
 const scriptsRoot = path.join(root, 'scripts');
 const scripts = [
+  'market-order-list.js',
   'catalog-list.js',
   'category-summary.js',
   'game-product-batch.js',
@@ -36,6 +37,7 @@ const scripts = [
 test('package exposes callable functions through ES module imports', async () => {
   const api = await import('new-erp-scripts');
   assert.deepEqual(Object.keys(api).sort(), [
+    'marketOrderList',
     'catalogList', 'categorySummary', 'exportGameProducts', 'exportOuterPackages', 'gameProductBatch', 'gameProductList',
     'productDetail', 'salesVolumeExport', 'salesVolumeRanking', 'erpClient',
     'stockingAssemblyInbound', 'supplyEvidence', 'packingOrderList', 'exportPackingDetails',

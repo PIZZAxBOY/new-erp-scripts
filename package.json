@@ -4,6 +4,7 @@
   "description": "Command-line tools for querying new-erp",
   "exports": "./index.mjs",
   "bin": {
+    "new-erp-market-order-list": "scripts/market-order-list.js",
     "new-erp-catalog-list": "scripts/catalog-list.js",
     "new-erp-category-summary": "scripts/category-summary.js",
     "new-erp-game-product-batch": "scripts/game-product-batch.js",

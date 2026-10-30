@@ -6,6 +6,7 @@
 
 | 用户需求 | 命令 |
 | --- | --- |
+| 获取市场订单，按系统单号、红人编码、邮箱、跟踪号或 SKU 搜索 | `new-erp-market-order-list` |
 | 查找商品分类或分类 ID | `new-erp-catalog-list` |
 | 按 SKU、中文名称、类型或分类搜索商品 | `new-erp-game-product-list` |
 | 一次查询多个 SKU | `new-erp-game-product-batch` |
@@ -28,6 +29,17 @@
 | 读取实时库存/装箱枚举或配货仓列表 | `new-erp-options --source inventory` |
 | 按 ERP 分类统计匹配的 SKU 销售记录数 | `new-erp-category-summary` |
 
+
+## 市场订单
+
+```sh
+new-erp-market-order-list --searchValue DEMO-ORDER-ID
+new-erp-market-order-list --searchType 6 --searchValue DEMO-SKU-001 --fetchAll
+```
+
+`searchType`：1跟踪号、2转单号、3系统单号（默认）、4红人编码、5邮箱、6 SKU；必须与非空 `searchValue` 配合。还可传 `project`、`status`、`transactionId`，未传状态时查询全部状态。系统单号对应 `id`，交易号对应 `transaction_id`，不要混用平台单号 `item_no`。搜索按 ERP 原生匹配规则，不在本地二次筛选。
+
+只读市场订单列表，不创建、修改或导出订单。保留原始订单、SKU 明细、物流信息和响应枚举（如 `order_status_map`），金额、数量及空值不自动转换。分页规则与其他列表一致，按订单 ID 检查重复。无筛选默认只查第一页，不代表全量；买家信息和搜索条件可能含个人信息，对外分享前脱敏。
 
 ## 查询示例与统计口径
 

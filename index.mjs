@@ -1,4 +1,5 @@
 import packingBatchListModule from './scripts/packing-batch-list.js';
+import marketOrderListModule from './scripts/market-order-list.js';
 import packingBatchDetailModule from './scripts/packing-batch-detail.js';
 import outerPackageListModule from './scripts/outer-package-list.js';
 import inventoryListModule from './scripts/inventory-list.js';
@@ -21,6 +22,7 @@ import packingDetailModule from './scripts/packing-detail.js';
 import planDeliveryOrderListModule from './scripts/plan-delivery-order-list.js';
 
 export const catalogList = catalogListModule.main;
+export const marketOrderList = marketOrderListModule.main;
 export const categorySummary = categorySummaryModule.main;
 export const gameProductBatch = gameProductBatchModule.main;
 export const gameProductList = gameProductListModule.main;
