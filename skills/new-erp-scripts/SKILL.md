@@ -47,7 +47,7 @@ new-erp packing-order-pages --project DEMO-PROJECT --warehouses DEMO-DEST --star
 npx --package=new-erp-mcp new-erp game-product-list --help
 ```
 
-替换末尾命令和选项即可查询。经常使用时用 `npm install -g new-erp-mcp` 安装；已有源码也可在仓库根目录执行 `npm install -g .` 或 `node scripts/new-erp.js <command>`。固定版本可使用 `new-erp-mcp@0.2.1`。
+替换末尾命令和选项即可查询。经常使用时用 `npm install -g new-erp-mcp` 安装；已有源码也可在仓库根目录执行 `npm install -g .` 或 `node scripts/new-erp.js <command>`。固定版本可使用 `new-erp-mcp@0.2.2`。
 
 单独安装本技能不会安装运行代码。不要从技能目录推断脚本路径。
 

@@ -1,6 +1,6 @@
 {
   "name": "new-erp-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "CLI and local MCP tools for querying new-erp products, images and inventory",
   "publishConfig": {
     "access": "public",

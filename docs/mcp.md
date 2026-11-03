@@ -13,7 +13,7 @@ npm install -g new-erp-mcp
 也可以下载打包生成的 `.tgz`，通过 npm 安装：
 
 ```sh
-npm install -g ./new-erp-mcp-0.2.1.tgz
+npm install -g ./new-erp-mcp-0.2.2.tgz
 ```
 
 在自己的终端完成登录，ERP 地址替换为实际地址：
@@ -93,4 +93,4 @@ npm pack
 
 `npm pack` 生成可供 npm 安装的 `.tgz`。可作为 Release 附件分发；上传 Release 或发布 npm registry 是单独的发布操作。包中不包含本机会话、项目配置或测试数据。
 
-`npm run check:package` 检查实际发布文件清单，阻止内部服务地址、个人路径、凭据和业务导出文件进入包。检查已生成的包可用 `node test/check-package-privacy.js ./new-erp-mcp-0.2.1.tgz`；检查结果只输出文件、行号和类别，不输出匹配到的敏感值。
+`npm run check:package` 检查实际发布文件清单，阻止内部服务地址、个人路径、凭据和业务导出文件进入包。检查已生成的包可用 `node test/check-package-privacy.js ./new-erp-mcp-0.2.2.tgz`；检查结果只输出文件、行号和类别，不输出匹配到的敏感值。
