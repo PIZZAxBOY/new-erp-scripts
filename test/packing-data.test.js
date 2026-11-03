@@ -3,7 +3,7 @@ const http = require('node:http');
 const { test } = require('node:test');
 
 test('packing data APIs retain versions, quantities and scope; pagination fails closed', async (t) => {
-  const api = await import('new-erp-scripts');
+  const api = await import('new-erp-mcp');
   const calls = [];
   let mode = '';
   const versions = [{ pack_version: '1', bom_number: '4', price: '1.4000' },

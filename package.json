@@ -1,7 +1,11 @@
 {
-  "name": "new-erp-scripts",
-  "version": "0.1.1",
-  "description": "Command-line tools for querying new-erp",
+  "name": "new-erp-mcp",
+  "version": "0.2.1",
+  "description": "CLI and local MCP tools for querying new-erp products, images and inventory",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "exports": "./index.mjs",
   "bin": {
     "new-erp": "scripts/new-erp.js"
@@ -13,9 +17,17 @@
     "docs/"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "check:package": "node test/check-package-privacy.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0"
   }
 }

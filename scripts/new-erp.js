@@ -9,7 +9,7 @@ const commands = Object.freeze({
   'category-summary': { script: 'category-summary.js', description: '按分类统计匹配的 SKU 销售记录' },
   'game-product-batch': { script: 'game-product-batch.js', description: '批量查询多个商品 SKU' },
   'game-product-list': { script: 'game-product-list.js', description: '按 SKU、名称或分类搜索商品' },
-  'product-detail': { script: 'product-detail.js', description: '按商品 ID 查询商品详情' },
+  'product-detail': { script: 'product-detail.js', description: '按商品 ID 或 ASIN 查询 ERP 商品详情与图片' },
   'sales-volume-ranking': { script: 'sales-volume-ranking.js', description: '查询日期范围内的 SKU 销量排名' },
   'sales-volume-export': { script: 'sales-volume-export.js', description: '异步导出销量 CSV' },
   'supply-evidence': { script: 'supply-evidence.js', description: '查询计划、库存及货物流转凭证' },
@@ -26,6 +26,10 @@ const commands = Object.freeze({
   'logistics-channel-list': { script: 'logistics-channel-list.js', description: '查询物流渠道与运输方式' },
   'product-declaration-list': { script: 'product-declaration-list.js', description: '查询商品申报主数据' },
   options: { script: 'erp-options.js', description: '读取实时仓库、状态等枚举' },
+  login: { script: 'login.js', description: '登录 ERP 并在本机保存 token' },
+  logout: { script: 'logout.js', description: '删除本机保存的登录会话' },
+  setup: { script: 'setup.js', description: '将本地 MCP 注册到 Codex' },
+  mcp: { script: 'mcp.js', description: '启动本地 stdio MCP' },
 });
 
 function formatHelp() {

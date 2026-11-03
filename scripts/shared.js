@@ -1,8 +1,16 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { AsyncLocalStorage } = require('node:async_hooks');
+const { readSession, sessionExpired } = require('./local-session.js');
+const erpContext = new AsyncLocalStorage();
 
 function redactSensitiveText(value, secrets = []) {
   const known = [...secrets, process.env.NEW_ERP_USERNAME, process.env.NEW_ERP_PASSWORD, process.env.NEW_ERP_TOKEN];
+  known.push(erpContext.getStore()?.token);
+  try {
+    const session = readSession();
+    known.push(session?.token, session?.username);
+  } catch {}
   // Read directly so malformed configuration cannot trigger recursive error handling.
   try {
     const config = JSON.parse(fs.readFileSync(configFilePath(), 'utf8'));
@@ -193,7 +201,13 @@ function normalizeBaseUrl(value) {
 }
 
 function getBaseUrl() {
-  return normalizeBaseUrl(configuredValue('NEW_ERP_BASE_URL', 'baseUrl'));
+  const context = erpContext.getStore();
+  return normalizeBaseUrl(context ? context.baseUrl
+    : configuredValue('NEW_ERP_BASE_URL', 'baseUrl') || readSession()?.baseUrl);
+}
+
+function withErpContext(context, operation) {
+  return erpContext.run({ baseUrl: normalizeBaseUrl(context.baseUrl), token: context.token }, operation);
 }
 
 function requiredString(value, label) {
@@ -310,8 +324,20 @@ async function loginToken({ username, password }) {
 }
 
 function getTokenFromArgs(args) {
+  const context = erpContext.getStore();
+  if (context) {
+    if (!context.token) throw new AuthRequiredError('local session', 'Run new-erp login first');
+    return context.token;
+  }
   const token = String(args.token ?? '').trim() || configuredValue('NEW_ERP_TOKEN', 'token');
-  return token || null;
+  if (token) return token;
+  const session = readSession();
+  if (!session) return null;
+  const baseUrl = getBaseUrl();
+  if (normalizeBaseUrl(session.baseUrl) !== baseUrl || sessionExpired(session)) {
+    throw new AuthRequiredError(new URL(baseUrl).host, 'Saved ERP session does not match this URL or has expired; run new-erp login');
+  }
+  return session.token;
 }
 
 async function resolveToken(args = {}) {
@@ -410,6 +436,7 @@ module.exports = {
   getBaseUrl,
   getTokenFromArgs,
   loginToken,
+  normalizeBaseUrl,
   parseArgs,
   positiveInteger,
   requestJson,
@@ -417,4 +444,5 @@ module.exports = {
   requiredString,
   resolveToken,
   runCli,
+  withErpContext,
 };

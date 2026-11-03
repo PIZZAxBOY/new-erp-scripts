@@ -1,14 +1,16 @@
 ---
 name: new-erp-scripts
-description: "通过命令行查询和导出 new-erp 商品、销量、市场订单、库存、配货及装箱数据。选择命令、读取分页结果、核对数据口径并恢复导出任务。"
+description: "通过命令行和本地 MCP 查询及导出 new-erp 商品、图片、销量、市场订单、库存、配货及装箱数据。选择命令、读取分页结果、核对数据口径并恢复导出任务。"
 ---
 # new-erp
 
 示例中的 `DEMO-*` 和商品 ID 均为占位值，查询前替换为实际值；项目和仓库从实时枚举获取。
 
-`new-erp-scripts` 提供 ERP 查询和导出命令，不创建或修改业务单据；导出会在 ERP 下载中心创建任务。
+`new-erp-mcp` 提供 ERP 查询和导出命令，不创建或修改业务单据；导出会在 ERP 下载中心创建任务。
 
 CLI 统一使用 `new-erp <subcommand>`。先运行 `new-erp --help` 发现命令，再用 `new-erp <subcommand> --help` 查看参数。
+
+按 ASIN 查询商品和图片使用 `new-erp product-detail --asin <10位ASIN>`；与 `--id` 二选一。查询使用当前 ERP 登录，先搜 ERP Listing，再按精确 SKU 取商品详情，保留全部商品及店铺匹配。图片来自 ERP 的 `imageUrl`，不访问亚马逊公开页面或其他 ERP。MCP 对应 `product_detail` 的 `asin` 参数。
 
 ```sh
 new-erp game-product-list --help
@@ -39,19 +41,21 @@ new-erp packing-order-pages --project DEMO-PROJECT --warehouses DEMO-DEST --star
 
 ## 安装与直接运行
 
-需要 Node.js 18+。已有 CLI 时直接调用；未安装时可从 GitHub 直接运行：
+需要 Node.js 20+。已有 CLI 时直接调用；未安装时可从 npm 直接运行：
 
 ```sh
-npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp game-product-list --help
+npx --package=new-erp-mcp new-erp game-product-list --help
 ```
 
-替换末尾命令和选项即可查询。经常使用时用 `npm install -g "git+https://github.com/PIZZAxBOY/new-erp-scripts.git"` 安装；已有源码也可在仓库根目录执行 `npm install -g .` 或 `node scripts/new-erp.js <command>`。GitHub 方式需要 Git，可通过 HTTPS 访问公开仓库；固定版本可在地址末尾追加 `#<提交号或标签>`。
+替换末尾命令和选项即可查询。经常使用时用 `npm install -g new-erp-mcp` 安装；已有源码也可在仓库根目录执行 `npm install -g .` 或 `node scripts/new-erp.js <command>`。固定版本可使用 `new-erp-mcp@0.2.1`。
 
 单独安装本技能不会安装运行代码。不要从技能目录推断脚本路径。
 
 ## 配置与认证
 
-配置来自运行命令时当前目录的 `config.json`，或 `NEW_ERP_CONFIG` 指定的文件。支持 `baseUrl/username/password/token`，对应的 `NEW_ERP_BASE_URL/NEW_ERP_USERNAME/NEW_ERP_PASSWORD/NEW_ERP_TOKEN` 环境变量优先。认证先用显式 token，再用环境变量或配置中的 token，最后才登录。
+推荐用户在自己的终端运行 `new-erp login --baseUrl <ERP地址>`，隐藏输入密码后仅在本机保存 token。`new-erp setup --client codex` 注册本地 MCP，重启 Codex 后使用；`new-erp logout` 删除本机保存的会话。MCP 支持 ERP 商品列表、商品详情、库存和枚举查询；所有工具只使用保存的个人会话，不回退到项目认证配置。
+
+CLI/API 还支持当前目录的 `config.json`，或 `NEW_ERP_CONFIG` 指定的文件。支持 `baseUrl/username/password/token`，对应环境变量优先。认证先用显式 token，再用环境变量或项目配置中的 token，然后用地址匹配且未过期的本机会话，最后才尝试账号密码登录。`NEW_ERP_SESSION_FILE` 可指定会话文件路径。不要在模型工具参数中传密码或 token。
 
 缺少配置时，允许主动询问用户的 ERP 网址（`baseUrl`）、登录账号（`username`）和密码（`password`），只询问尚未提供的字段；已有可用 token 时无需再询问账号密码。网址和账号可在对话中询问，密码或 token 使用平台提供的私密输入工具（如 `request_secret`）收集；没有私密输入工具时，引导用户在本地配置文件或环境变量中填写。
 

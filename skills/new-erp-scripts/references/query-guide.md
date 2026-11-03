@@ -10,7 +10,7 @@
 | 查找商品分类或分类 ID | `new-erp catalog-list` |
 | 按 SKU、中文名称、类型或分类搜索商品 | `new-erp game-product-list` |
 | 一次查询多个 SKU | `new-erp game-product-batch` |
-| 按商品 ID 查看单个商品 | `new-erp product-detail` |
+| 按商品 ID 或 ASIN 查看 ERP 商品和图片 | `new-erp product-detail --id <ID>` 或 `--asin <10位ASIN>` |
 | 按日期范围统计 SKU 销量排名，精确查 SKU 或按 SKU+平台拆分 | `new-erp sales-volume-ranking` |
 | 大范围异步导出 SKU、SKU+平台或平台销量 CSV | `new-erp sales-volume-export` |
 | 查询销售计划、搬运计划、成品出入库、组装计划或货物流转单据 | `new-erp supply-evidence` |
@@ -28,7 +28,16 @@
 | 查询SKU/国家申报主数据 | `new-erp product-declaration-list --sku <SKU> --country US` |
 | 读取实时库存/装箱枚举或配货仓列表 | `new-erp options --source inventory` |
 | 按 ERP 分类统计匹配的 SKU 销售记录数 | `new-erp category-summary` |
+| 用个人 ERP 账号登录并保存本机会话 | `new-erp login --baseUrl <ERP地址>` |
+| 注册到 Codex 并启动本地 MCP | `new-erp setup --client codex`；客户端启动 `new-erp mcp` |
+| 删除本机登录会话 | `new-erp logout` |
 
+
+## ASIN 商品查询
+
+`product-detail` 的 `id/asin` 二选一。ASIN 仅在当前 ERP 内部查询，先通过 `jyAmazon` Listing 搜索 ASIN，再按精确 ERP SKU 查产品基础 ID 和详情。全部请求需要登录，不访问公开亚马逊页面。
+
+同一 ASIN 关联多个店铺或商品时全部保留，返回 `asin`、`asinListings` 和 `asinSource`；`imageUrl` 仍为 ERP 原始图片路径，不保证有附图全集。默认每次 Listing/SKU 搜索最多100页、每页100条，`maxPages` 上限1000；分页不完整、未配对 SKU、权限不足或无法核对映射时直接报错，不自动取首条或换数据源。见 [API 与接口依据](../../../docs/api.md#按-asin-查询-erp-商品)。
 
 ## 市场订单
 

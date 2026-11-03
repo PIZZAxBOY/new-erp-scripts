@@ -31,11 +31,15 @@ const scripts = [
   'logistics-channel-list.js',
   'product-declaration-list.js',
   'erp-options.js',
+  'login.js',
+  'logout.js',
+  'setup.js',
+  'mcp.js',
 
 ];
 
 test('package exposes callable functions through ES module imports', async () => {
-  const api = await import('new-erp-scripts');
+  const api = await import('new-erp-mcp');
   assert.deepEqual(Object.keys(api).sort(), [
     'marketOrderList',
     'catalogList', 'categorySummary', 'exportGameProducts', 'exportOuterPackages', 'gameProductBatch', 'gameProductList',
@@ -60,22 +64,22 @@ test('packed npm package installs one unified command, API and separate skill me
     assert.ok(tarball.files.every(({ path: filename }) =>
       ['index.mjs', 'package.json', 'README.md'].includes(filename)
       || filename.startsWith('scripts/') || filename.startsWith('skills/') || filename.startsWith('docs/')));
-    const installed = spawnSync('npm', ['install', '--offline', '--prefix', directory,
+    const installed = spawnSync('npm', ['install', '--prefer-offline', '--prefix', directory,
       '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', path.join(directory, tarball.filename)], {
       cwd: directory, encoding: 'utf8',
     });
     assert.equal(installed.status, 0, installed.stderr);
     const imported = spawnSync(process.execPath, ['--input-type=module', '-e',
-      "import * as api from 'new-erp-scripts'; console.log(JSON.stringify(Object.keys(api).sort()))"], {
+      "import * as api from 'new-erp-mcp'; console.log(JSON.stringify(Object.keys(api).sort()))"], {
       cwd: directory, encoding: 'utf8',
     });
     assert.equal(imported.status, 0, imported.stderr);
-    assert.deepEqual(JSON.parse(imported.stdout), Object.keys(await import('new-erp-scripts')).sort());
-    const packageRoot = path.join(directory, 'node_modules', 'new-erp-scripts');
+    assert.deepEqual(JSON.parse(imported.stdout), Object.keys(await import('new-erp-mcp')).sort());
+    const packageRoot = path.join(directory, 'node_modules', 'new-erp-mcp');
     const manifest = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
     assert.deepEqual(Object.keys(manifest.bin), ['new-erp']);
     assert.equal(manifest.bin['new-erp'], 'scripts/new-erp.js');
-    assert.equal(scripts.length, 22);
+    assert.equal(scripts.length, 26);
     const cli = path.join(directory, 'node_modules', '.bin', 'new-erp');
     const topHelp = spawnSync(cli, [], { cwd: directory, encoding: 'utf8' });
     assert.equal(topHelp.status, 0, topHelp.stderr || topHelp.error);
@@ -101,6 +105,18 @@ test('packed npm package installs one unified command, API and separate skill me
       assert.equal(help.status, 0, `${command}: ${help.stderr || help.error}`);
       assert.equal(help.stdout.split('\n')[0], `Usage: new-erp ${command} [options]`);
     }
+    const { Client } = await import('@modelcontextprotocol/client');
+    const { StdioClientTransport } = await import('@modelcontextprotocol/client/stdio');
+    const client = new Client({ name: 'installed-package-test', version: '1.0.0' });
+    const transport = new StdioClientTransport({ command: cli, args: ['mcp'], cwd: directory,
+      env: { ...process.env, NEW_ERP_SESSION_FILE: path.join(directory, 'no-session.json') }, stderr: 'pipe' });
+    try {
+      await client.connect(transport);
+      assert.equal((await client.listTools()).tools.length, 4);
+      const result = await client.callTool({ name: 'product_detail', arguments: { id: 1 } });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /new-erp login/);
+    } finally { await client.close(); }
     const secret = 'DO-NOT-ECHO-CLI-TOKEN-123';
     for (const args of [[secret], [`--token=${secret}`], ['--help', secret]]) {
       const result = spawnSync(cli, args, { cwd: directory, encoding: 'utf8' });
@@ -118,7 +134,7 @@ test('packed npm package installs one unified command, API and separate skill me
 });
 
 test('outer package export submits flow status and downloads the matching task', async () => {
-  const { exportOuterPackages } = await import('new-erp-scripts');
+  const { exportOuterPackages } = await import('new-erp-mcp');
   let submitted = false;
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -156,7 +172,7 @@ test('outer package export submits flow status and downloads the matching task',
 });
 
 test('product export submits selected fields and downloads the completed task', async () => {
-  const { exportGameProducts } = await import('new-erp-scripts');
+  const { exportGameProducts } = await import('new-erp-mcp');
   let submitted = false;
   let exportRoute = '/products/game-product-list/product-export';
   const server = http.createServer((request, response) => {
@@ -242,7 +258,7 @@ function commandForScript(script) {
 }
 
 test('packing APIs preserve scope and export only the matching native task', async (t) => {
-  const { packingOrderList, exportPackingDetails } = await import('new-erp-scripts');
+  const { packingOrderList, exportPackingDetails } = await import('new-erp-mcp');
   const options = { token: 'test-token', project: 'YS', warehouses: ['DEMO-DEST', 'OVERSEAS'],
     startDate: '2026-09-01', endDate: '2026-09-30' };
   const query = { auction_site: 'YS', site_type: 'DEMO-DEST,OVERSEAS', status: '',
@@ -399,7 +415,10 @@ test('invalid input fails without contacting the ERP', () => {
   assert.match(result.stderr, /startDate/);
 });
 
-test('a command logs in and queries the ERP with native Node APIs', async () => {
+test('a command logs in and queries the ERP with native Node APIs', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-cli-login-test-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  await fs.writeFile(path.join(directory, 'config.json'), '{}');
   const calls = [];
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -445,6 +464,8 @@ test('a command logs in and queries the ERP with native Node APIs', async () => 
       ...process.env,
       NEW_ERP_BASE_URL: `http://127.0.0.1:${address.port}`,
       NEW_ERP_TOKEN: '',
+      NEW_ERP_CONFIG: path.join(directory, 'config.json'),
+      NEW_ERP_SESSION_FILE: path.join(directory, 'session.json'),
     });
 
     assert.equal(result.status, 0, result.stderr);

@@ -1,10 +1,10 @@
-# new-erp-scripts
+# new-erp-mcp
 
-> 通过命令行和 JavaScript 查询 new-erp 数据，供人和 AI Agent 使用。
+> 通过命令行、JavaScript 和本地 MCP 查询 new-erp 数据，供人和 AI Agent 使用。
 
-覆盖商品、销量、市场订单、库存、配货、装箱和物流申报。查询结果可直接处理为 JSON，批量导出保留 ERP 原生 CSV/XLSX；支持完整分页、逐页读取和装箱导出任务恢复。
+覆盖商品、销量、市场订单、库存、配货、装箱和物流申报。商品图片来自 ERP。查询结果可直接处理为 JSON，批量导出保留 ERP 原生 CSV/XLSX；支持完整分页、逐页读取和装箱导出任务恢复。
 
-所有命令只查询或导出数据，不创建或修改业务单据。导出会在 ERP 下载中心创建任务。
+业务命令只查询或导出数据，不创建或修改业务单据。导出会在 ERP 下载中心创建任务；登录和客户端接入命令仅修改本机文件。
 
 ## 快速开始
 
@@ -12,25 +12,33 @@
 
 ### 1. 安装命令行工具
 
-需要 Node.js 18+ 和 Git。代码仓库公开，可直接通过 HTTPS 安装；查询 ERP 数据仍需自行配置认证信息。
+需要 Node.js 20+。npm 包名为 `new-erp-mcp`，安装后使用 `new-erp` 命令。也支持 `npm install -g ./new-erp-mcp-0.2.1.tgz` 安装下载的 npm 包。
 
 ```sh
 node --version
-npm install -g "git+https://github.com/PIZZAxBOY/new-erp-scripts.git"
+npm install -g new-erp-mcp
 new-erp game-product-list --help
 ```
 
 也可以通过 `npx` 直接运行，替换末尾命令和选项即可：
 
 ```sh
-npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp game-product-list --help
+npx --package=new-erp-mcp new-erp game-product-list --help
 ```
 
-需要固定版本时，在 Git 地址末尾追加 `#<提交号或标签>`。
+需要固定版本时使用 `new-erp-mcp@0.2.1`。
 
 ### 2. 配置 ERP
 
-在运行命令的目录创建不提交到版本库的 `config.json`：
+推荐用自己的 ERP 账号登录，密码在终端中隐藏输入：
+
+```sh
+new-erp login --baseUrl https://your-erp.example.com
+```
+
+登录只保存 token，不保存密码，后续 CLI 与本地 MCP 均可使用。运行 `new-erp logout` 删除本机登录会话。
+
+已有 token 时，也可在运行命令的目录创建不提交到版本库的 `config.json`：
 
 ```json
 {
@@ -46,6 +54,7 @@ npx --package="git+https://github.com/PIZZAxBOY/new-erp-scripts.git" new-erp gam
 ```sh
 new-erp game-product-list --sku DEMO-SKU-001
 new-erp product-detail --id 12345
+new-erp product-detail --asin B012345678
 new-erp sales-volume-ranking --startDate 2026-01-01 --endDate 2026-01-31
 ```
 
@@ -86,6 +95,32 @@ new-erp packing-detail-export --project DEMO-PROJECT --warehouses DEMO-DEST --st
 
 装箱列表支持精确总单号查询；批量明细导出仍需完整的项目、目的仓、开始和结束日期。导出不覆盖已有文件，装箱导出可用 `--taskId` 恢复原任务。范围限制和数据口径见 [查询指南](./skills/new-erp-scripts/references/query-guide.md)。
 
+## 按 ASIN 查询 ERP 商品和图片
+
+`B012345678` 是示例值，替换为实际 ASIN：
+
+```sh
+new-erp product-detail --asin B012345678
+```
+
+`--id` 与 `--asin` 二选一。ASIN 查询先读取 ERP 的 Listing 搜索枚举，再搜索匹配的 ERP SKU，最后获取商品详情；图片来自 ERP 的 `imageUrl`。所有请求使用 ERP 登录凭据，不访问亚马逊商品网页。
+
+同一 ASIN 对应多个 SKU 或店铺时保留全部匹配；商品详情附带 `asinListings` 和 `asinSource`。没有匹配、未配对 ERP SKU、权限不足或分页不完整时直接报错。ASIN 和 SKU 搜索默认各自最多100页，每页100条，可用 `--maxPages` 调整，上限1000页。接口和字段见 [ASIN 查询 API](./docs/api.md#按-asin-查询-erp-商品)。
+
+## 在 Codex 中使用本地 MCP
+
+全局安装本包并完成 ERP 登录后，运行：
+
+```sh
+new-erp setup --client codex
+```
+
+该命令调用本机 `codex mcp add`，将当前 Node.js 和 MCP 入口的绝对路径注册到 Codex，无需手动编辑配置。需要先安装 Codex CLI；会替换同名的 `new-erp` MCP 配置，可用 `--name` 改名或用 `--dryRun` 预览。重启 Codex 后即可在对话中查询。
+
+`new-erp mcp` 提供本地 stdio MCP，工具为 `game_product_list`、`product_detail`、`inventory_list` 和 `erp_options`。所有工具只使用 `new-erp login` 保存的会话；缺失或失效时要求重新登录，不读取项目或环境中的共享 token。
+
+安装、登录保存位置、手动配置和更新方法见 [本地 MCP 指南](./docs/mcp.md)。
+
 ## 供 AI Agent 使用
 
 安装技能，让 Agent 按需选命令、处理分页并核对数据口径：
@@ -109,13 +144,13 @@ npx skills add PIZZAxBOY/new-erp-scripts --skill new-erp-scripts --agent codex
 在使用方项目中安装：
 
 ```sh
-npm install "git+https://github.com/PIZZAxBOY/new-erp-scripts.git"
+npm install new-erp-mcp
 ```
 
 通过 ES module 导入，选项与 CLI 同名：
 
 ```js
-import { gameProductList, salesVolumeRanking } from 'new-erp-scripts';
+import { gameProductList, salesVolumeRanking } from 'new-erp-mcp';
 
 const products = await gameProductList({ sku: 'DEMO-SKU-001' });
 const sales = await salesVolumeRanking({
@@ -136,8 +171,9 @@ const sales = await salesVolumeRanking({
 | `NEW_ERP_USERNAME` | `username` | 登录用户名 |
 | `NEW_ERP_PASSWORD` | `password` | 登录密码 |
 | `NEW_ERP_CONFIG` | 无 | 指定配置文件路径，默认读取当前目录的 `config.json` |
+| `NEW_ERP_SESSION_FILE` | 无 | 指定本机登录会话文件路径；默认位于当前系统用户的配置目录 |
 
-环境变量覆盖配置文件中的同名值。所有查询和导出优先使用显式 token，再使用环境变量或配置中的 token，最后才登录。
+环境变量覆盖项目配置文件中的同名值。CLI/API 的 ERP 地址最后回退到本机登录会话；认证先使用显式 token，再使用环境变量或项目配置中的 token，然后使用地址匹配且未过期的本机会话，最后才尝试账号密码登录。MCP 的 ERP 查询始终绑定本机登录会话，不使用上述共享配置回退。
 
 错误信息对认证字段做脱敏，不回显非 JSON 响应正文或配置解析原文。查询结果及导出文件保留 ERP 业务原文，对外分享前需另行脱敏。
 
@@ -147,7 +183,8 @@ const sales = await salesVolumeRanking({
 
 | 范围 | 命令 |
 | --- | --- |
-| 商品与分类 | `new-erp catalog-list`、`new-erp game-product-list`、`new-erp game-product-batch`、`new-erp product-detail` |
+| 商品与分类 | `new-erp catalog-list`、`new-erp game-product-list`、`new-erp game-product-batch`、`new-erp product-detail --id/--asin` |
+| 登录与本地 MCP | `new-erp login`、`new-erp logout`、`new-erp setup`、`new-erp mcp` |
 | 销量与汇总 | `new-erp sales-volume-ranking`、`new-erp sales-volume-export`、`new-erp category-summary` |
 | 单据与实际入库 | `new-erp supply-evidence`、`new-erp stocking-assembly-inbound` |
 | 装箱历史与导出 | `new-erp packing-order-list`、`new-erp packing-order-pages`、`new-erp packing-detail`、`new-erp packing-detail-export` |
@@ -170,7 +207,9 @@ test/                       # 自动化测试
 在仓库根目录可用 `node scripts/new-erp.js <command>` 运行，或用 `npm install -g .` 安装本地版本。验证命令：
 
 ```sh
+npm ci
 npm test
+npm run check:package
 node --check index.mjs
 for file in scripts/*.js; do node --check "$file"; done
 ```

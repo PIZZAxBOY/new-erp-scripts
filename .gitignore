@@ -5,6 +5,7 @@ config.json
 !.env.example
 .DS_Store
 .venv/
+node_modules/
 
 # Local credentials and generated exports
 *.pem

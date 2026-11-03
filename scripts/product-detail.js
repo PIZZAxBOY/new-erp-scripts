@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 const {
   asNumberOrNull,
+  ArgumentError,
+  CommandExecutionError,
   EmptyResultError,
   getBaseUrl,
   resolveToken,
@@ -8,6 +10,7 @@ const {
   requestJson,
   runCli,
 } = require('./shared.js');
+const { productsForAsin } = require('./product-asin.js');
 
 function pickFirstSkuVersion(versions) {
   return Array.isArray(versions) && versions.length > 0 ? versions[0] : {};
@@ -68,17 +71,16 @@ function detailRow(data, includeRaw) {
 }
 
 const args = [
-  { name: 'id', type: 'int', help: '产品基础 ID（必填）' },
+  { name: 'id', type: 'int', help: '产品基础 ID；与 asin 二选一' },
+  { name: 'asin', type: 'string', help: '按 ASIN 搜索 ERP Listing，再查询关联商品；与 id 二选一' },
+  { name: 'maxPages', type: 'int', default: 100, help: 'ASIN 及 SKU 搜索各自的最多页数，1–1000' },
   { name: 'username', type: 'string', default: '', help: 'ERP 账号；也可用 NEW_ERP_USERNAME' },
   { name: 'password', type: 'string', default: '', help: 'ERP 密码；也可用 NEW_ERP_PASSWORD' },
   { name: 'token', type: 'string', default: '', help: '已有 token；传入后跳过登录' },
   { name: 'raw', type: 'bool', default: false, help: '附带完整详情原始 JSON' },
 ];
 
-async function main(argsValue) {
-  const id = positiveInteger(argsValue.id, undefined, 'id');
-  const token = await resolveToken(argsValue);
-
+async function detailById(id, { token, raw }) {
   const url = new URL(`${getBaseUrl()}/index.php`);
   url.searchParams.set('r', '/products/product-basic/detail');
   url.searchParams.set('id', String(id));
@@ -93,7 +95,33 @@ async function main(argsValue) {
     throw new EmptyResultError('new-erp product-detail', `No product detail found for id=${id}`);
   }
 
-  return [detailRow(data, Boolean(argsValue.raw))];
+  return detailRow(data, Boolean(raw));
+}
+
+async function main(options = {}) {
+  const hasId = options.id !== undefined;
+  const hasAsin = options.asin !== undefined;
+  if (hasId === hasAsin) throw new ArgumentError('Provide exactly one of id or asin');
+  const maxPages = positiveInteger(options.maxPages, 100, 'maxPages', 1000);
+  let id;
+  let asin;
+  if (hasId) id = positiveInteger(options.id, undefined, 'id');
+  else {
+    asin = String(options.asin ?? '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(asin)) throw new ArgumentError('asin must be exactly 10 letters or digits');
+  }
+  const token = await resolveToken(options);
+  if (hasId) return [await detailById(id, { token, raw: options.raw })];
+  const products = await productsForAsin(asin, { token, maxPages });
+  const rows = [];
+  for (const product of products) {
+    const row = await detailById(product.id, { token, raw: options.raw });
+    if (String(row.id) !== String(product.id) || row.sku !== product.sku) {
+      throw new CommandExecutionError('ERP product detail does not match the ASIN lookup product ID or SKU');
+    }
+    rows.push({ ...row, asin, asinListings: product.asinListings, asinSource: product.asinSource });
+  }
+  return rows;
 }
 
 module.exports = { main };
@@ -101,7 +129,7 @@ module.exports = { main };
 if (require.main === module) {
   runCli({
     name: 'product-detail',
-    description: '按产品 ID 查询 new-erp 产品详情。',
+    description: '按产品 ID 或 ASIN 查询 ERP 产品详情与图片；ASIN 通过 ERP Listing 关联 SKU。',
     args,
     func: main,
   });

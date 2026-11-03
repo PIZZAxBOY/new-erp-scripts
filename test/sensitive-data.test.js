@@ -88,10 +88,10 @@ test('configured credentials and common secret fields are masked in diagnostics'
   for (const secret of ['unknown secret', 'unknown-token', 'user:pass']) assert.ok(!redacted.includes(secret));
 });
 
-test('product detail requires an explicit ID and CLI rejects positional secrets without echoing them', async (t) => {
+test('product detail requires an explicit ID or ASIN and CLI rejects positional secrets without echoing them', async (t) => {
   await isolateConfig(t);
   const api = await import('../index.mjs');
-  await assert.rejects(api.productDetail({ token: 'test-token' }), /id must be a positive integer/);
+  await assert.rejects(api.productDetail({ token: 'test-token' }), /exactly one of id or asin/);
   const result = spawnSync(process.execPath, ['scripts/product-detail.js', 'fake-positional-secret'], {
     cwd: path.resolve(__dirname, '..'), encoding: 'utf8',
   });

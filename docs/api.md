@@ -13,6 +13,42 @@
 
 `exportGameProducts({ disused: true })` 使用游戏类淘汰产品原生导出接口 `/products/game-product-list/disuse-product-export`；返回下载中心任务 ID 和 XLSX，默认字段为 SKU、品名、单价。
 
+## 按 ASIN 查询 ERP 商品
+
+`productDetail({ asin, token?, maxPages?, raw? })` 返回 ERP 商品详情数组；也支持原有的 `productDetail({ id })`。`id` 与 `asin` 必须二选一，在认证和网络请求前校验。ASIN 必须为10位字母或数字，去除首尾空白并转大写。
+
+```js
+import { productDetail } from 'new-erp-mcp';
+
+const products = await productDetail({ asin: 'B012345678' });
+for (const product of products) {
+  console.log(product.sku, product.imageUrl, product.asinListings);
+}
+```
+
+示例 ASIN 需替换为实际值。CLI 为 `new-erp product-detail --asin B012345678`，MCP 为 `product_detail({ asin: 'B012345678' })`。
+
+查询仅访问当前配置的 ERP：
+
+1. `GET /sales/ling-xing/jy-amazon-selected-option` 获取 `other_select_name1_arr`，选择唯一标为 `ASIN` 的字段值，不硬编码字段编号。
+2. `GET /sales/ling-xing/jy-amazon-list-data` 使用 `other_select_name1` 和 `other_select_value1` 搜索，完整分页后按返回的 `asin` 精确核对。
+3. 按每个匹配的 ERP `sku` 查询 `/products/game-product-list/index`，完整分页后精确匹配 SKU；没有精确匹配时再查询 `/products/game-product-list/game-disuse-product-list`，取得停用商品的产品 ID。
+4. `/products/product-basic/detail` 查询详情，核对 ID 和 SKU 后返回，不将 Listing 行 ID 当作产品基础 ID。
+
+这些接口由 [ERP 前端模块](./erp-asin-contract.md) 确认。ASIN 查询覆盖该 ERP 的 `jyAmazon` Listing 数据范围；未自动混入其他 Listing 接口或外部 ERP 数据。接口权限由登录账号决定。
+
+ASIN 查询在原商品详情字段之外提供：
+
+| 字段 | 含义 |
+| --- | --- |
+| `asin` | 规范化后的查询 ASIN。 |
+| `asinListings` | 此 ERP SKU 对应的全部精确匹配 Listing 原始记录，保留店铺、MSKU 等差异。 |
+| `asinSource` | Listing 查询路由、参数、采集时间、`totalCount/fetchedCount/complete/matchedCount`；不包含凭据。 |
+
+`imageUrl` 保持 ERP 原始值；相对路径需结合 ERP 地址使用，空值不补造。ASIN 查询不保证存在主图或附图全集。重复店铺匹配同一产品时详情只读取一次；多个 SKU 或产品 ID 全部返回，不自动取首条。
+
+`maxPages` 默认100，最多1000，适用于每次 ASIN Listing 和 SKU 搜索；每页100条。列表截断、重复记录、总数变化、无法确认 ASIN、未配对 ERP SKU、无商品映射或详情 ID/SKU 不匹配均抛错，不返回部分结果，也不回退到公开亚马逊页面。`raw` 仍只附带商品详情原始 JSON。
+
 ## 销量与单据
 
 `salesVolumeRanking` 默认返回一个分页；`fetchAll: true` 获取完整范围并重新排序。指定 `sku` 时抓取全部匹配页，再按 SKU 精确过滤；`aggregateBy: 'sku-platform'` 按平台拆分。`categorySummary` 统计完整范围内的记录行数，不是销售数量。日期未带时间时，开始使用 `00:00:00`，结束使用 `23:59:59`；父级分类 ID 使用实时分类树展开。
@@ -25,7 +61,7 @@
 
 ## 市场订单
 
-`marketOrderList(options)` / `new-erp market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 [submitter 接口文档](https://github.com/PIZZAxBOY/submitter/blob/main/APIreference.md) 及 ERP 前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
+`marketOrderList(options)` / `new-erp market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 ERP 接口文档及前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
 
 | 选项 | ERP 参数与含义 |
 | --- | --- |
@@ -40,7 +76,7 @@
 订单原字段（含 `sku_qty`、`product_all_info`、`track_number`、`order_status` 等）及实时枚举保持原样，不展开 SKU、不转换金额或空值。ERP 元数据保留首页值，不重新计算汇总。订单可能包含买家地址、邮箱等个人信息，查询结果和 `source.query` 中的搜索内容对外分享前须脱敏。
 
 ```js
-import { marketOrderList } from 'new-erp-scripts';
+import { marketOrderList } from 'new-erp-mcp';
 
 const orders = await marketOrderList({ searchType: '6', searchValue: 'DEMO-SKU-001', fetchAll: true });
 const order = await marketOrderList({ searchValue: 'DEMO-ORDER-ID' });
@@ -63,7 +99,7 @@ const order = await marketOrderList({ searchValue: 'DEMO-ORDER-ID' });
 已出库箱优先从批量文件读取 SKU、数量和销售包装；仅为未出库箱或导出缺失的必要字段补读 `packingDetail`。需复核采集期间的SKU、包装变化时，可做两次新导出比较完整清单，调用时都不传 `taskId`。批量主数据已有 `exportGameProducts({ token, fields, disused? })`、`exportOuterPackages({ token, flowStatus })`，都返回 XLSX Buffer；前者保留 ERP 指定导出字段，不能替代包含全部版本的 `productDetail`，后者可按包装类型建立本地快照。
 
 ```js
-import { packingOrderPages, exportPackingDetails } from 'new-erp-scripts';
+import { packingOrderPages, exportPackingDetails } from 'new-erp-mcp';
 
 const selection = {
   project: 'DEMO-PROJECT', warehouses: ['DEMO-DEST'],
@@ -106,7 +142,7 @@ const detail = await exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER
 分页出现重复记录时抛错，不静默去重；库存和外包装按完整记录检测重复，保留同一商品的不同批次、BOM和包装版本。`supplyEvidence` 和实际入库查询也使用相同的分页数量校验，入库数量缺失或空白时抛错，不补零。
 
 ```js
-import { packingBatchList, packingBatchDetail, outerPackageList, inventoryList } from 'new-erp-scripts';
+import { packingBatchList, packingBatchDetail, outerPackageList, inventoryList } from 'new-erp-mcp';
 
 const batches = await packingBatchList({ stockFrom: 'DEMO-FROM', fetchAll: true });
 if (batches.list.length) {

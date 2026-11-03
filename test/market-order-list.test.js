@@ -5,7 +5,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 
 test('market orders use the read-only ERP route and retain raw records and metadata', async (t) => {
-  const { marketOrderList } = await import('new-erp-scripts');
+  const { marketOrderList } = await import('new-erp-mcp');
   const calls = [];
   const rows = [1, 2, 3].map((id) => ({ id: String(id), transaction_id: 'DEMO-TX',
     sku_qty: [{ sku: 'DEMO-SKU', qty: '2' }], order_status: '0', track_number: '',
