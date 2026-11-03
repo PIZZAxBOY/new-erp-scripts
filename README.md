@@ -12,7 +12,7 @@
 
 ### 1. 安装命令行工具
 
-需要 Node.js 20+。npm 包名为 `new-erp-mcp`，安装后使用 `new-erp` 命令。也支持 `npm install -g ./new-erp-mcp-0.3.0.tgz` 安装下载的 npm 包。
+需要 Node.js 20+。npm 包名为 `new-erp-mcp`，安装后使用 `new-erp` 命令。也支持 `npm install -g ./new-erp-mcp-0.3.1.tgz` 安装下载的 npm 包。
 
 ```sh
 node --version
@@ -26,7 +26,7 @@ new-erp game-product-list --help
 npx --package=new-erp-mcp new-erp game-product-list --help
 ```
 
-需要固定版本时使用 `new-erp-mcp@0.3.0`。
+需要固定版本时使用 `new-erp-mcp@0.3.1`。
 
 ### 2. 配置 ERP
 

@@ -50,6 +50,8 @@ async function form(url) {
   const response = await fetch(url);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('referrer-policy'), 'same-origin',
+    'native same-origin form submissions must retain their Origin');
   const html = await response.text();
   const csrf = html.match(/name="csrf" value="([a-f0-9]+)"/)?.[1];
   assert.ok(csrf);
