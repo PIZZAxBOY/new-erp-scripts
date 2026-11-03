@@ -12,7 +12,7 @@
 
 ### 1. 安装命令行工具
 
-需要 Node.js 20+。npm 包名为 `new-erp-mcp`，安装后使用 `new-erp` 命令。也支持 `npm install -g ./new-erp-mcp-0.2.2.tgz` 安装下载的 npm 包。
+需要 Node.js 20+。npm 包名为 `new-erp-mcp`，安装后使用 `new-erp` 命令。也支持 `npm install -g ./new-erp-mcp-0.3.0.tgz` 安装下载的 npm 包。
 
 ```sh
 node --version
@@ -26,17 +26,19 @@ new-erp game-product-list --help
 npx --package=new-erp-mcp new-erp game-product-list --help
 ```
 
-需要固定版本时使用 `new-erp-mcp@0.2.2`。
+需要固定版本时使用 `new-erp-mcp@0.3.0`。
 
 ### 2. 配置 ERP
 
-推荐用自己的 ERP 账号登录，密码在终端中隐藏输入：
+推荐打开本机临时网页登录，一次填写 ERP 网址、账号和密码：
 
 ```sh
-new-erp login --baseUrl https://your-erp.example.com
+new-erp login --browser
 ```
 
 登录只保存 token，不保存密码，后续 CLI 与本地 MCP 均可使用。运行 `new-erp logout` 删除本机登录会话。
+
+网页登录成功后自动关闭临时服务。MCP 未登录时才返回详细引导，让 Agent 打开登录页并在完成后重试查询；初始化只加载两个入口，业务参数按需发现。也支持 `new-erp login --baseUrl https://your-erp.example.com` 在终端隐藏输入密码，或使用客户端私密输入卡。
 
 已有 token 时，也可在运行命令的目录创建不提交到版本库的 `config.json`：
 
@@ -117,13 +119,15 @@ new-erp setup --client codex
 
 该命令调用本机 `codex mcp add`，将当前 Node.js 和 MCP 入口的绝对路径注册到 Codex，无需手动编辑配置。需要先安装 Codex CLI；会替换同名的 `new-erp` MCP 配置，可用 `--name` 改名或用 `--dryRun` 预览。重启 Codex 后即可在对话中查询。
 
-`new-erp mcp` 提供本地 stdio MCP，工具为 `game_product_list`、`product_detail`、`inventory_list` 和 `erp_options`。所有工具只使用 `new-erp login` 保存的会话；缺失或失效时要求重新登录，不读取项目或环境中的共享 token。
+`new-erp mcp` 只注册 `erp_discover` 和 `erp_execute` 两个入口，按需发现并调用现有全部 24 项业务能力。包括商品、ASIN 图片、销量、订单、库存、装箱、配货、物流和导出；`auth.login` 可直接打开本机配置页，不需要 Agent 执行终端命令。业务只使用保存的个人会话，不读取共享 token。
+
+导出返回任务编号及本地文件路径，长任务不阻塞客户端；参数与完整能力目录通过 `erp_discover` 获取。MCP 用户无需安装 CLI 技能。0.3 起，原四个直接工具改为 `erp_execute` 的业务能力名称。
 
 安装、登录保存位置、手动配置和更新方法见 [本地 MCP 指南](./docs/mcp.md)。
 
-## 供 AI Agent 使用
+## 可选 CLI 技能
 
-安装技能，让 Agent 按需选命令、处理分页并核对数据口径：
+MCP 用户无需安装仓库技能。需要让 Agent 直接使用 CLI、处理批量导出或分页时，可选安装：
 
 ```sh
 npx skills add PIZZAxBOY/new-erp-scripts --skill new-erp-scripts --agent codex

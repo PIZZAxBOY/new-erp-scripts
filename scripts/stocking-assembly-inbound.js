@@ -55,7 +55,7 @@ async function main(options) {
     ...summarize(sku, candidates, tasks) };
 }
 
-module.exports = { main, summarize };
+module.exports = { main, summarize, args };
 
 if (require.main === module) {
   runCli({ name: 'stocking-assembly-inbound', description: '按 SKU 和入库日期统计备货拼装的实际入库数量。', args, func: main });

@@ -123,7 +123,7 @@ async function main(argsValue) {
   return outputRows;
 }
 
-module.exports = { main };
+module.exports = { main, args };
 
 if (require.main === module) {
   runCli({

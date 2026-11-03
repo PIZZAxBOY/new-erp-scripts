@@ -27,5 +27,5 @@ async function main(options = {}) {
   return result;
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) runCli({ name: 'packing-batch-list', description: '查询配货批次，默认已配货待装箱；不代表已核验上游调拨签收。', args, func: main });

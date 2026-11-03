@@ -107,7 +107,7 @@ async function main(options) {
   return [{ taskId: task.id, output, bytes: file.length, encoding: 'GBK' }];
 }
 
-module.exports = { main, matchingTask };
+module.exports = { main, matchingTask, args };
 
 if (require.main === module) {
   runCli({ name: 'sales-volume-export', description: '异步导出 SKU、SKU+平台或平台月销量 CSV。', args, func: main });

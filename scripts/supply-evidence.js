@@ -84,7 +84,7 @@ async function main(options) {
   return rows.filter((row) => String(row?.sku ?? '').trim() === sku);
 }
 
-module.exports = { main };
+module.exports = { main, args };
 
 if (require.main === module) {
   runCli({ name: 'supply-evidence', description: '按 SKU 查询销售计划、成品出入库及备货候选单据。', args, func: main });

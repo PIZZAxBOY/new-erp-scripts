@@ -112,8 +112,10 @@ test('packed npm package installs one unified command, API and separate skill me
       env: { ...process.env, NEW_ERP_SESSION_FILE: path.join(directory, 'no-session.json') }, stderr: 'pipe' });
     try {
       await client.connect(transport);
-      assert.equal((await client.listTools()).tools.length, 4);
-      const result = await client.callTool({ name: 'product_detail', arguments: { id: 1 } });
+      assert.equal((await client.listTools()).tools.length, 2);
+      const discovered = await client.callTool({ name: 'erp_discover', arguments: {} });
+      assert.equal(JSON.parse(discovered.content[0].text).operations.filter((operation) => !operation.name.includes('.')).length, 24);
+      const result = await client.callTool({ name: 'erp_execute', arguments: { operation: 'product_detail', params: { id: 1 } } });
       assert.equal(result.isError, true);
       assert.match(result.content[0].text, /new-erp login/);
     } finally { await client.close(); }

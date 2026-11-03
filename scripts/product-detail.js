@@ -124,7 +124,7 @@ async function main(options = {}) {
   return rows;
 }
 
-module.exports = { main };
+module.exports = { main, args };
 
 if (require.main === module) {
   runCli({

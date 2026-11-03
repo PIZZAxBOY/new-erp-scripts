@@ -153,7 +153,7 @@ async function main(argsValue) {
     }));
 }
 
-module.exports = { main };
+module.exports = { main, args };
 
 if (require.main === module) {
   runCli({

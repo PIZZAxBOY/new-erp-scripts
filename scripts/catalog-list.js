@@ -118,7 +118,7 @@ async function main(argsValue) {
   return filtered.map((row) => outputRow(row, Boolean(argsValue.raw)));
 }
 
-module.exports = { main };
+module.exports = { main, args };
 
 if (require.main === module) {
   runCli({

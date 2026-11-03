@@ -235,7 +235,7 @@ function asNumberOrNull(value) {
 }
 
 async function requestJson(url, { method = 'GET', headers = {}, body = undefined,
-  label = 'new-erp request', timeoutMs = 120_000 } = {}) {
+  label = 'new-erp request', timeoutMs = 120_000, signal } = {}) {
   let response;
   let responseText;
   const baseUrl = getBaseUrl();
@@ -253,6 +253,15 @@ async function requestJson(url, { method = 'GET', headers = {}, body = undefined
     secrets.push(credentials?.username, credentials?.password, credentials?.token);
   } catch {}
   const safe = (text) => redactSensitiveText(text, secrets);
+  const timeoutSignal = AbortSignal.timeout(timeout);
+  const controller = signal ? new AbortController() : null;
+  const abortExternal = () => controller.abort(signal.reason);
+  const abortTimeout = () => controller.abort(timeoutSignal.reason);
+  if (signal) {
+    signal.addEventListener('abort', abortExternal, { once: true });
+    timeoutSignal.addEventListener('abort', abortTimeout, { once: true });
+    if (signal.aborted) abortExternal();
+  }
   try {
     const options = {
       method,
@@ -264,7 +273,7 @@ async function requestJson(url, { method = 'GET', headers = {}, body = undefined
       },
       body,
       redirect: 'error',
-      signal: AbortSignal.timeout(timeout),
+      signal: controller?.signal ?? timeoutSignal,
     };
     response = await fetch(url, options);
     responseText = await response.text();
@@ -274,6 +283,9 @@ async function requestJson(url, { method = 'GET', headers = {}, body = undefined
       .filter((item, index, items) => item && items.indexOf(item) === index)
       .join(': ');
     throw new CommandExecutionError(safe(`${label} failed: ${message}`));
+  } finally {
+    signal?.removeEventListener('abort', abortExternal);
+    timeoutSignal.removeEventListener('abort', abortTimeout);
   }
 
   let json;
@@ -297,7 +309,7 @@ async function requestJson(url, { method = 'GET', headers = {}, body = undefined
   return json;
 }
 
-async function loginToken({ username, password }) {
+async function loginToken({ username, password, signal }) {
   const baseUrl = getBaseUrl();
   const loginURL = `${baseUrl}/index.php?r=/user/check-login`;
   const user = requiredString(username || configuredValue('NEW_ERP_USERNAME', 'username'), 'username');
@@ -311,6 +323,7 @@ async function loginToken({ username, password }) {
       Origin: baseUrl,
     },
     body: JSON.stringify({ username: user, password: pass }),
+    signal,
   });
 
   const token = json?.data?.token;

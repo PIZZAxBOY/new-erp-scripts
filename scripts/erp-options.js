@@ -19,5 +19,5 @@ async function main(options = {}) {
   return { data, source };
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) runCli({ name: 'options', description: '读取ERP实时仓库、状态等枚举，不推断业务状态含义。', args, func: main });

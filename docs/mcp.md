@@ -1,88 +1,116 @@
-# 通过 npm 安装本地 MCP
+# 安装与使用本地 MCP
 
-本包提供本地 stdio MCP，不需要部署在线服务。每位用户在自己的电脑上安装并登录 ERP，电脑需能访问 ERP。需要 Node.js 20+；自动接入 Codex 还需要 Codex CLI。
+需要 Node.js 20+。MCP 在用户自己的电脑运行，使用各自的 ERP 登录和权限，无需部署服务器。MCP 用户无需安装仓库的可选 CLI 技能。
 
-## 安装与登录
-
-从 npm 安装：
+## 安装并接入客户端
 
 ```sh
 npm install -g new-erp-mcp
-```
-
-也可以下载打包生成的 `.tgz`，通过 npm 安装：
-
-```sh
-npm install -g ./new-erp-mcp-0.2.2.tgz
-```
-
-在自己的终端完成登录，ERP 地址替换为实际地址：
-
-```sh
-new-erp login --baseUrl https://your-erp.example.com
 new-erp setup --client codex
 ```
 
-`login` 提示输入账号和密码，密码不回显。也可用 `--username` 提供账号。非交互环境使用 `NEW_ERP_USERNAME` 和 `NEW_ERP_PASSWORD`；不要把密码放进命令参数或聊天。登录失败不会覆盖原会话。
+重启 Codex 或 T3 Code 以加载 MCP。`setup` 需要已安装的 Codex CLI，将当前 Node.js 和 MCP 脚本的绝对路径写入客户端配置，不写入账号或凭据。用 `codex mcp get new-erp` 检查路径；`new-erp setup --dryRun` 预览注册命令。不要用临时 `npx` 安装目录运行 `setup`。
 
-重启 Codex 后即可使用，例如“查询某个 SKU 的产品图片”。`codex mcp list` 可查看注册配置；Codex 终端界面中的 `/mcp` 可查看连接状态。所有工具都要求有效的本机 ERP 会话。
+其他支持本地 stdio 的客户端可将 `new-erp mcp` 配置为启动命令。标准输入和输出仅传输 MCP 协议。
 
-## Codex 配置
+## 首次在网页完成配置
 
-`setup` 调用 `codex mcp add`，注册当前安装的 Node.js 和 `scripts/mcp.js` 的绝对路径，不将账号、密码或 token 写入 Codex 配置。它会替换同名配置，其他名称的 MCP 不受影响。
+向 Agent 提出业务需求即可，例如“按 ASIN 查询商品图片”。未登录时，工具返回配置引导，Agent 调用：
 
-```sh
-new-erp setup --client codex --dryRun
-new-erp setup --client codex --name my-erp
+```js
+erp_execute({ operation: 'auth.login', params: {} })
 ```
 
-其他支持本地 stdio 的客户端可以使用 `new-erp mcp` 作为启动命令，也可使用 Node.js 和 MCP 脚本的绝对路径。先独立完成登录，MCP 进程的标准输入与输出只传输协议，不能用于交互输入密码。
+该调用立即返回本机登录链接，并自动尝试打开浏览器。用户在页面一次填写 ERP 网址、账号和密码；不能自动打开时手动打开返回的链接。Agent 不查看或填写真实密码字段。密码由网页直接交给本地程序登录 ERP，不进入对话、工具参数、命令参数或结果，也不会保存。
 
-不要通过临时的 `npx` 安装目录运行 `setup`；全局安装能提供持久的脚本路径。移动包目录、切换 Node.js 安装位置或更新包后重新运行 `setup`。Codex 的接入方式见 [OpenAI 官方 MCP 文档](https://learn.chatgpt.com/docs/extend/mcp)。
+页面五分钟后失效，成功、取消或过期后关闭临时服务。登录失败可在原页面重试，不会覆盖原会话。Agent 可查询 `auth.status`，登录成功后重试原业务操作，无需重启 MCP。
 
-## 更新版本
+也可独立运行 CLI：
+
+```sh
+new-erp login --browser
+new-erp login --browser --open false
+```
+
+第二条只输出登录链接。网页不可用时，使用客户端私密输入能力或在自己的终端运行 `new-erp login --baseUrl https://your-erp.example.com`，隐藏输入密码。不要在聊天正文或命令参数中提交密码。
+
+## 按需发现能力和参数
+
+初始化只加载两个工具，完整业务参数在需要时返回：
+
+| 工具 | 用法 |
+| --- | --- |
+| `erp_discover` | `query` 按关键词找能力；`operation` 返回所选能力的参数；都省略时列出目录。 |
+| `erp_execute` | 用 `operation`、`params` 执行；导出还需稳定的 `requestId`。 |
+
+目录覆盖现有 24 项业务能力：商品与分类、ASIN 图片、销量与汇总、市场订单、库存与凭证、装箱与配货、外包装、物流与申报，以及全部导出。`auth.*` 和 `jobs.*` 也通过同一个入口按需调用。
+
+```js
+erp_discover({ query: '商品' })
+erp_discover({ operation: 'product_detail' })
+erp_execute({ operation: 'product_detail', params: { asin: 'B012345678' } })
+```
+
+ASIN 是示例值。其他业务参数以对应的 `erp_discover({ operation })` 结果为准；未知参数、错误类型和凭据参数会被拒绝。查询只使用本机保存的个人会话，不回退到环境或项目中的共享 token。
+
+0.3 起，原四个直接 MCP 工具改为业务能力名称。例如原 `product_detail({ asin })` 改为上面的 `erp_execute` 调用。CLI 和 JavaScript API 保留原有入口。
+
+## 读取任务结果和导出文件
+
+业务调用返回任务回执，包括 `jobId` 和 `state`。短查询会等待片刻，通常直接返回 `succeeded` 及 `result.data`；较慢的操作返回 `queued` 或 `running`，按 `pollAfterMs` 提示查询：
+
+```js
+erp_execute({ operation: 'jobs.status', params: { jobId: '返回的任务编号' } })
+erp_execute({ operation: 'jobs.list', params: { limit: 10 } })
+```
+
+`succeeded` 才表示执行完成；`failed`、`interrupted` 和 `cancelled` 不能当作成功或空结果。结果以单份 JSON 文本返回，不在 `structuredContent` 中重复整份数据。
+
+`jobs.list` 仅返回任务摘要和文件信息，不重复每个任务的数据；完整结果通过单项 `jobs.status` 获取。
+
+导出使用独立的请求编号。同一次重试复用编号，新的导出使用新编号；相同编号和参数返回原任务，不重复提交。编号与不同参数冲突时会报错：
+
+```js
+erp_discover({ operation: 'export_game_products' })
+erp_execute({
+  operation: 'export_game_products',
+  requestId: 'product-export-request-001',
+  params: { fields: ['sku', 'name_cn', 'price'], disused: false },
+})
+```
+
+文件保存在本机，结果返回 `artifact.path`、类型、字节数等信息；不会把 XLSX、CSV、Base64 或整份大型结果塞进上下文。大型 JSON 完整保存到文件并提供有限预览；逐页装箱读取保存为 NDJSON，分页失败会标记不完整并返回失败，不静默截断。
+
+默认导出目录为 `~/Downloads/new-erp`，可用 `NEW_ERP_EXPORT_DIR` 指定专用目录。macOS/Linux 的私有任务目录和文件使用 `0700`、`0600` 权限；Windows 使用当前用户的文件权限。MCP 管理输出路径，不接受 CLI 的 `output` 参数。任务记录不保存 token 或密码；换账号后不能通过 MCP 读取其他账号的任务。
+
+## 恢复装箱导出与取消任务
+
+装箱导出会在继续轮询前保存 ERP `taskId`。任务中断后先检查原任务；有已保存的装箱检查点时，可使用新的请求编号按原范围恢复：
+
+```js
+erp_execute({
+  operation: 'jobs.resume',
+  requestId: 'packing-resume-request-002',
+  params: { jobId: '原装箱任务编号' },
+})
+```
+
+恢复会校验原查询和 `taskId`，不创建替代导出。没有检查点或其他导出类型不自动恢复、重提；ERP 端任务可能仍继续运行，先查看下载中心。客户端断线不会自动取消已接收的任务；停止执行进程可能中断本地处理。
+
+`jobs.cancel` 可取消本实例中尚在排队的任务。现有业务 API 不支持可靠地取消运行中的 ERP 操作，工具会明确返回不支持。不同 MCP 进程可以共用任务目录；其他存活进程的未完成任务返回最后记录和不确定状态，不自动接管或重试。
+
+## 保留登录会话并更新
+
+会话只保存 ERP 地址、账号、token、用户 ID 和过期时间，不保存密码。默认位置为 macOS/Linux 的 `${XDG_CONFIG_HOME:-~/.config}/new-erp/session.json`，或 Windows 的 `%LOCALAPPDATA%\new-erp\session.json`；也可用 `NEW_ERP_SESSION_FILE` 指定位置。
 
 ```sh
 npm install -g new-erp-mcp@latest
 new-erp setup --client codex
 ```
 
-更新后重启 MCP 客户端以加载新代码。本机登录会话保存在包目录之外，更新包不会删除会话；同一系统用户、ERP 地址和会话路径下，有效 token 可继续使用，无需重新登录。token 失效、主动退出或更换上述配置后，重新运行 `new-erp login`。
+更新后重启客户端以加载新代码。会话文件在包目录之外，有效会话会保留，通常无需重新登录；失效后重新打开登录页。`auth.logout` 或 `new-erp logout` 删除本机会话，不撤销 ERP 上游 token；已开始的任务继续使用原账号快照，切换账号后不能读取原账号的任务。
 
-## 可用工具
-
-| MCP 工具 | 用途 |
-| --- | --- |
-| `game_product_list` | 按 SKU、品名、分类和类型查询 ERP 商品及图片，每次返回一页。 |
-| `product_detail` | 按 ERP 产品基础 ID 或 ASIN 查询详情、ERP 图片和全部 SKU/BOM 版本；`id/asin` 二选一。ASIN 先查 ERP Listing，再按匹配的 SKU 获取详情。 |
-| `inventory_list` | 按精确 SKU、仓库代码查询库存批次或仓库汇总，每次返回一页。 |
-| `erp_options` | 查询库存、装箱或配货仓库的实时枚举。 |
-
-工具直接调用已有 JavaScript 函数。数组结果封装为 `{ list }`，对象结果保持原结构；同时返回 MCP 文本和 `structuredContent`。工具参数不接受账号、密码、token 或自定义 ERP 地址。
-
-商品列表和库存支持 `page`、`pageSize`，默认第1页20条，每页最多100条。`product_detail` 的 ASIN 解析会完整读取相关 Listing 和 SKU 搜索，每页100条，`maxPages` 默认100、上限1000，保留全部精确匹配及店铺信息。批量导出和其他全量查询可继续使用 CLI/API。库存预测量不是已签收库存，保留批次与 BOM 差异。
-
-## 本机登录会话
-
-会话仅包含 ERP 地址、账号、token、用户 ID 和上游返回的过期时间，不保存密码，也不会上传到额外的服务。位置为：
-
-- macOS/Linux：`${XDG_CONFIG_HOME:-~/.config}/new-erp/session.json`。
-- Windows：`%LOCALAPPDATA%\new-erp\session.json`，缺少该变量时使用用户目录下的 `AppData\Local`。
-- 设置 `NEW_ERP_SESSION_FILE` 可指定其他位置，适合隔离不同本地环境。
-
-token 以明文保存在本机文件，macOS/Linux 文件权限为 `0600`，应用新建的目录为 `0700`；Windows 使用当前用户目录的文件权限。不要分享或提交会话文件。登录写入采用临时文件后原子替换，读到的会话对应一次完整登录。
-
-MCP 每次 ERP 调用读取当前会话，并把 ERP 地址及 token 绑定到该次调用；不回退到当前目录的 `config.json` 或 `NEW_ERP_TOKEN`。切换账号或退出后，后续调用使用新的状态，已开始的调用继续使用开始时的会话。
-
-可识别的过期时间到期，或 ERP 返回登录失效时，需要重新运行 `new-erp login`。目前没有自动刷新 ERP token 的实现。权限不足保留为权限错误，不换用其他账号。
-
-```sh
-new-erp logout
-```
-
-`logout` 删除本机保存的会话，不撤销上游 token，也不修改项目配置或环境变量。旧 CLI/API 显式配置的认证仍按原方式生效；MCP 的 ERP 工具要求重新登录。
-
-## 打包与验证
+## 打包验证
 
 ```sh
 npm ci
@@ -91,6 +119,4 @@ npm run check:package
 npm pack
 ```
 
-`npm pack` 生成可供 npm 安装的 `.tgz`。可作为 Release 附件分发；上传 Release 或发布 npm registry 是单独的发布操作。包中不包含本机会话、项目配置或测试数据。
-
-`npm run check:package` 检查实际发布文件清单，阻止内部服务地址、个人路径、凭据和业务导出文件进入包。检查已生成的包可用 `node test/check-package-privacy.js ./new-erp-mcp-0.2.2.tgz`；检查结果只输出文件、行号和类别，不输出匹配到的敏感值。
+`.tgz` 可通过 `npm install -g ./new-erp-mcp-0.3.0.tgz` 安装。发布文件不包含本机会话、项目配置、业务导出或测试数据。使用 `node test/check-package-privacy.js ./new-erp-mcp-0.3.0.tgz` 检查实际归档；检查只报告文件、行号和类别，不输出敏感值。

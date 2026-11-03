@@ -15,5 +15,5 @@ async function main(options = {}) {
   return queryList('/products/product-declare-info/index', query, options);
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) runCli({ name: 'product-declaration-list', description: '查询SKU/国家申报主数据，保留HS编码、材质、用途、价格币种和空值。', args, func: main });

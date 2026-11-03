@@ -11,11 +11,12 @@ const root = path.resolve(__dirname, '..');
 
 async function isolate(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-mcp-test-'));
-  const keys = ['NEW_ERP_SESSION_FILE', 'NEW_ERP_CONFIG', 'NEW_ERP_BASE_URL', 'NEW_ERP_TOKEN', 'NEW_ERP_USERNAME', 'NEW_ERP_PASSWORD'];
+  const keys = ['NEW_ERP_SESSION_FILE', 'NEW_ERP_CONFIG', 'NEW_ERP_BASE_URL', 'NEW_ERP_TOKEN', 'NEW_ERP_USERNAME', 'NEW_ERP_PASSWORD', 'NEW_ERP_EXPORT_DIR'];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
   process.env.NEW_ERP_SESSION_FILE = path.join(directory, 'session.json');
   process.env.NEW_ERP_CONFIG = path.join(directory, 'config.json');
+  process.env.NEW_ERP_EXPORT_DIR = path.join(directory, 'artifacts');
   await fs.writeFile(process.env.NEW_ERP_CONFIG, '{}');
   t.after(async () => {
     for (const [key, value] of Object.entries(previous)) {
@@ -38,10 +39,16 @@ function runCli(args, env = process.env) {
   });
 }
 
-async function memoryClient(t) {
+function payload(result) { return JSON.parse(result.content.find((item) => item.type === 'text').text); }
+
+function execute(client, operation, params = {}, requestId) {
+  return client.callTool({ name: 'erp_execute', arguments: { operation, params, ...(requestId ? { requestId } : {}) } });
+}
+
+async function memoryClient(t, options = {}) {
   const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client');
   const { createServer } = require('../scripts/mcp.js');
-  const server = await createServer();
+  const server = await createServer({ openBrowser: false, ...options });
   const client = new Client({ name: 'erp-test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -127,22 +134,115 @@ test('MCP lists only ERP tools; no saved login never uses configured shared cred
   const fetchMock = t.mock.method(global, 'fetch', async () => { throw new Error('unexpected request'); });
   const client = await memoryClient(t);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((tool) => tool.name), ['game_product_list', 'product_detail', 'inventory_list', 'erp_options']);
-  assert.ok(tools.every((tool) => tool.annotations.readOnlyHint));
+  const instructions = client.getInstructions();
+  assert.ok(instructions.length <= 80, 'MCP startup instructions must stay short');
+  assert.doesNotMatch(instructions, /request_secret|--browser/);
+  assert.ok(tools.every((tool) => tool.description.length <= 90), 'Keep business tool descriptions concise');
+  assert.deepEqual(tools.map((tool) => tool.name), ['erp_discover', 'erp_execute']);
+  assert.ok(Buffer.byteLength(JSON.stringify({ instructions, tools })) <= 2000, 'Keep startup metadata within 2000 UTF-8 bytes');
+  assert.equal(tools[0].annotations.readOnlyHint, true);
+  assert.equal(tools[1].annotations.readOnlyHint, false);
   assert.ok(tools.every((tool) => !['username', 'password', 'token'].some((key) => key in tool.inputSchema.properties)));
-  const result = await client.callTool({ name: 'product_detail', arguments: { id: 12 } });
+  const result = await execute(client, 'product_detail', { id: 12 });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /new-erp login/);
+  assert.match(result.content[0].text, /ERP 网址/);
+  assert.match(result.content[0].text, /--baseUrl/);
+  assert.match(result.content[0].text, /new-erp login --browser/);
+  assert.match(result.content[0].text, /request_secret/);
+  assert.match(result.content[0].text, /重试/);
+  assert.equal(payload(result).error.next.arguments.operation, 'auth.login');
   assert.equal(fetchMock.mock.callCount(), 0);
-  const asinResult = await client.callTool({ name: 'product_detail', arguments: { asin: 'B012345678' } });
+  const asinResult = await execute(client, 'product_detail', { asin: 'B012345678' });
   assert.equal(asinResult.isError, true);
   assert.match(asinResult.content[0].text, /new-erp login/);
   assert.equal(fetchMock.mock.callCount(), 0);
-  const invalid = await client.callTool({ name: 'product_detail', arguments: { id: -1 } });
+  const invalid = await execute(client, 'product_detail', { id: -1 });
   assert.equal(invalid.isError, true);
-  const injected = await client.callTool({ name: 'product_detail', arguments: { id: 12, token: 'injected-credential' } });
+  const injected = await execute(client, 'product_detail', { id: 12, token: 'injected-credential' });
   assert.equal(injected.isError, true);
   assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test('first login without an ERP URL explains configuration without asking for secrets in chat', async (t) => {
+  await isolate(t);
+  const result = await runCli(['login']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /new-erp login --baseUrl/);
+  assert.match(result.stderr, /NEW_ERP_BASE_URL/);
+  assert.equal(readSession(), null);
+});
+
+test('discovery covers every business capability and helpers without loading login state', async (t) => {
+  await isolate(t);
+  await fs.writeFile(process.env.NEW_ERP_CONFIG, '{broken');
+  await fs.writeFile(process.env.NEW_ERP_SESSION_FILE, '{broken', { mode: 0o600 });
+  const syncFs = require('node:fs');
+  const original = syncFs.readFileSync;
+  t.mock.method(syncFs, 'readFileSync', function (filename, ...args) {
+    if ([process.env.NEW_ERP_CONFIG, process.env.NEW_ERP_SESSION_FILE].includes(filename)) throw new Error('Discovery must not read user state');
+    return original.call(this, filename, ...args);
+  });
+  const fetchMock = t.mock.method(global, 'fetch', async () => { throw new Error('unexpected business request'); });
+  const client = await memoryClient(t);
+  const discovered = payload(await client.callTool({ name: 'erp_discover', arguments: {} }));
+  assert.equal(discovered.operations.filter((operation) => !operation.name.includes('.')).length, 24);
+  assert.equal(discovered.operations.length, 31);
+  for (const operation of discovered.operations) {
+    const description = payload(await client.callTool({ name: 'erp_discover', arguments: { operation: operation.name } }));
+    assert.equal(description.name, operation.name);
+    assert.equal(description.inputSchema.additionalProperties, false);
+    for (const hidden of ['username', 'password', 'token', 'output']) assert.equal(hidden in description.inputSchema.properties, false);
+  }
+  for (const operation of ['constructor', '__proto__', 'erpClient', '/arbitrary/route']) {
+    const result = await client.callTool({ name: 'erp_discover', arguments: { operation } });
+    assert.equal(result.isError, true);
+    assert.match(payload(result).error.message, /Unknown ERP operation/);
+  }
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test('MCP browser login configures the current session and retries business work without restarting', async (t) => {
+  await isolate(t);
+  const client = await memoryClient(t);
+  const password = 'browser-secret-password';
+  const token = 'browser-secret-token';
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    if (url.searchParams.get('r') === '/user/check-login') {
+      let body = '';
+      request.on('data', (chunk) => { body += chunk; });
+      request.on('end', () => {
+        assert.deepEqual(JSON.parse(body), { username: 'browser-user', password });
+        response.end(JSON.stringify({ code: 200, data: { token, user_id: 42 } }));
+      });
+    } else {
+      assert.equal(request.headers.token, token);
+      response.end(JSON.stringify({ code: 200, data: { product_basic_info: { id: 7, sku: 'FIXTURE-SKU', image_url: '/images/fixture.jpg' } } }));
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const started = payload(await execute(client, 'auth.login'));
+  assert.equal(started.state, 'login_pending');
+  assert.equal(payload(await execute(client, 'auth.login')).url, started.url);
+  const html = await (await fetch(started.url)).text();
+  const csrf = html.match(/name="csrf" value="([a-f0-9]+)"/)[1];
+  const response = await fetch(started.url, { method: 'POST', headers: {
+    Origin: new URL(started.url).origin, 'Content-Type': 'application/x-www-form-urlencoded',
+  }, body: new URLSearchParams({ csrf, baseUrl: `http://127.0.0.1:${server.address().port}`, username: 'browser-user', password }) });
+  assert.equal(response.status, 200);
+  const state = payload(await execute(client, 'auth.status'));
+  assert.equal(state.loggedIn, true);
+  const work = payload(await execute(client, 'product_detail', { id: 7 }));
+  assert.equal(work.state, 'succeeded');
+  assert.equal(work.result.data.list[0].sku, 'FIXTURE-SKU');
+  assert.equal(payload(await execute(client, 'jobs.status', { jobId: work.jobId })).result.data.list[0].imageUrl, '/images/fixture.jpg');
+  for (const value of [started, state, work]) for (const secret of [password, token]) assert.ok(!JSON.stringify(value).includes(secret));
+  saveSession({ baseUrl: `http://127.0.0.1:${server.address().port}`, username: 'different-user', token: 'different-token', userId: 99 });
+  const foreign = await execute(client, 'jobs.status', { jobId: work.jobId });
+  assert.equal(payload(foreign).error.code, 'NOT_FOUND');
+  assert.equal(payload(await execute(client, 'auth.logout')).loggedIn, false);
 });
 
 test('MCP product_detail searches ASIN inside the current user ERP and rejects conflicting selectors', async (t) => {
@@ -163,16 +263,17 @@ test('MCP product_detail searches ASIN inside the current user ERP and rejects c
     return new Response(JSON.stringify({ code: 200, data }));
   });
   const client = await memoryClient(t);
-  const result = await client.callTool({ name: 'product_detail', arguments: { asin } });
-  assert.equal(result.structuredContent.list[0].asin, asin);
-  assert.equal(result.structuredContent.list[0].imageUrl, '/images/sku-a.jpg');
+  const result = await execute(client, 'product_detail', { asin });
+  assert.equal(payload(result).state, 'succeeded');
+  assert.equal(payload(result).result.data.list[0].asin, asin);
+  assert.equal(payload(result).result.data.list[0].imageUrl, '/images/sku-a.jpg');
   assert.equal(calls.length, 4);
-  const invalid = await client.callTool({ name: 'product_detail', arguments: { id: 42, asin } });
+  const invalid = await execute(client, 'product_detail', { id: 42, asin });
   assert.equal(invalid.isError, true);
   assert.equal(calls.length, 4);
 });
 
-test('MCP returns structured data using the current saved user and handles session changes and expiry', async (t) => {
+test('MCP returns one JSON result using the saved user and handles session changes and expiry', async (t) => {
   await isolate(t);
   process.env.NEW_ERP_TOKEN = 'shared-token';
   process.env.NEW_ERP_BASE_URL = 'https://shared.invalid';
@@ -186,27 +287,28 @@ test('MCP returns structured data using the current saved user and handles sessi
   const client = await memoryClient(t);
   const session = { baseUrl: 'https://personal.invalid', username: 'account', token: 'private-token', expireTime: 4102444800 };
   saveSession(session);
-  let result = await client.callTool({ name: 'product_detail', arguments: { id: 12 } });
-  assert.equal(result.structuredContent.list[0].sku, 'SKU-ONE');
-  assert.equal(JSON.parse(result.content[0].text).list[0].id, 12);
+  let result = await execute(client, 'product_detail', { id: 12 });
+  assert.equal(payload(result).result.data.list[0].sku, 'SKU-ONE');
+  assert.equal(payload(result).result.data.list[0].id, 12);
+  assert.equal(result.structuredContent, undefined);
   saveSession({ ...session, baseUrl: 'https://second.invalid', token: 'second-token' });
-  result = await client.callTool({ name: 'product_detail', arguments: { id: 12 } });
+  result = await execute(client, 'product_detail', { id: 12 });
   assert.equal(result.isError, undefined);
   assert.equal(new URL(calls[0][0]).origin, session.baseUrl);
   assert.equal(calls[0][1], session.token);
   assert.equal(new URL(calls[1][0]).origin, 'https://second.invalid');
   assert.equal(calls[1][1], 'second-token');
   denied = true;
-  result = await client.callTool({ name: 'product_detail', arguments: { id: 12 } });
+  result = await execute(client, 'product_detail', { id: 12 });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /new-erp login/);
   assert.ok(!JSON.stringify(result).includes('second-token'));
   saveSession({ ...session, expireTime: 1 });
-  result = await client.callTool({ name: 'product_detail', arguments: { id: 12 } });
+  result = await execute(client, 'product_detail', { id: 12 });
   assert.equal(result.isError, true);
   assert.equal(calls.length, 3);
   removeSession();
-  result = await client.callTool({ name: 'erp_options', arguments: { source: 'inventory' } });
+  result = await execute(client, 'erp_options', { source: 'inventory' });
   assert.equal(result.isError, true);
   assert.equal(calls.length, 3);
 });
@@ -222,8 +324,8 @@ test('real stdio client initializes and calls tools without non-protocol stdout'
   transport.stderr.on('data', (chunk) => { stderr += chunk; });
   try {
     await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length, 4);
-    const result = await client.callTool({ name: 'inventory_list', arguments: { sku: 'SKU', stockCode: 'WH' } });
+    assert.equal((await client.listTools()).tools.length, 2);
+    const result = await execute(client, 'inventory_list', { sku: 'SKU', stockCode: 'WH' });
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /new-erp login/);
   } finally { await client.close(); }

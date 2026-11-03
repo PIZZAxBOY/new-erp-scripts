@@ -23,5 +23,5 @@ async function main(options = {}) {
   return result;
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) runCli({ name: 'inventory-list', description: '读取国内仓即时、占用、在途和预计可用库存；预计可用不等于已签收可装箱。', args, func: main });

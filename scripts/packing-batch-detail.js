@@ -19,5 +19,5 @@ async function main(options = {}) {
   return { ...data, source };
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) runCli({ name: 'packing-batch-detail', description: '读取批次原始SKU明细、BOM及版本字段，保留 provider 分组。', args, func: main });

@@ -398,6 +398,7 @@ async function main(argsValue) {
 
 module.exports = {
   main,
+  args,
   catalogNamesForIds,
   expandCatalogIds,
   fetchSalesPage,

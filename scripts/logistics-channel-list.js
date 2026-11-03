@@ -6,5 +6,5 @@ async function main(options = {}) {
   return queryList('/logistics/initial-channel/index', {}, options);
 }
 
-module.exports = { main };
+module.exports = { main, args: listArgs };
 if (require.main === module) runCli({ name: 'logistics-channel-list', description: '查询头程物流渠道、运输方式和材积除数原始配置。', args: listArgs, func: main });

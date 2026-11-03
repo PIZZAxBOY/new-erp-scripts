@@ -1,71 +1,103 @@
 #!/usr/bin/env node
 const { z } = require('zod/v4');
-const { AuthRequiredError, parseArgs, formatHelp, redactSensitiveText, withErpContext } = require('./shared.js');
-const { readSession, sessionExpired } = require('./local-session.js');
+const { parseArgs, formatHelp, redactSensitiveText } = require('./shared.js');
+const { createAuth } = require('./mcp-auth.js');
+const catalog = require('./mcp-catalog.js');
+const { createJobs } = require('./mcp-jobs.js');
 const { version } = require('../package.json');
 
-async function createServer() {
+const noParams = z.strictObject({});
+const jobParams = z.strictObject({ jobId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/) });
+const helpers = new Map([
+  ['auth.login', { description: '打开本机临时网页登录，一次填写 ERP 网址、账号和密码', schema: noParams }],
+  ['auth.status', { description: '查看本机登录状态，不返回密码或 token', schema: noParams }],
+  ['auth.logout', { description: '取消待完成登录并删除本机会话', schema: noParams }],
+  ['jobs.status', { description: '读取当前账号的任务状态、结果及文件路径', schema: jobParams }],
+  ['jobs.list', { description: '查找当前账号的最近任务，避免重复导出', schema: z.strictObject({ limit: z.number().int().min(1).max(100).default(10) }) }],
+  ['jobs.resume', { description: '用已保存的 taskId 和原查询范围恢复装箱导出，需新的 requestId', schema: jobParams }],
+  ['jobs.cancel', { description: '取消排队任务；运行中的 ERP 操作不支持可靠取消', schema: jobParams }],
+]);
+
+const loginGuide = {
+  code: 'LOGIN_REQUIRED',
+  message: '先调用 erp_execute，operation 为 auth.login，params 为 {}。把返回的本机网页链接交给用户，由用户一次填写 ERP 网址、账号和密码；Agent 不查看或填写密码。登录后重试原查询，无需重启 MCP。',
+  next: { tool: 'erp_execute', arguments: { operation: 'auth.login', params: {} } },
+  fallback: '网页不可用时可在本机运行 new-erp login --browser；也可用客户端 request_secret 私密输入或让用户在终端运行 new-erp login --baseUrl <ERP_URL>。不得在对话、工具参数、命令参数或日志中传递密码和 token。',
+};
+
+function response(output, isError = false) {
+  return { content: [{ type: 'text', text: JSON.stringify(output) }], ...(isError ? { isError: true } : {}) };
+}
+
+async function createServer(options = {}) {
   const { McpServer } = await import('@modelcontextprotocol/server');
-  const api = await import('../index.mjs');
+  const auth = createAuth({ openBrowser: options.openBrowser, browserTimeoutMs: options.browserTimeoutMs });
+  const jobs = createJobs({ rootDir: options.rootDir, getOperation: catalog.getOperation, waitMs: options.waitMs });
   const server = new McpServer({ name: 'new-erp', version }, {
-    instructions: 'All tools query ERP using the current OS user\'s saved login. If login is missing or expired, ask the user to run new-erp login in their own terminal. Never ask for passwords or tokens in tool arguments. Inventory forecasts are not received stock; preserve batches and BOM versions.',
+    instructions: '先发现能力和参数，再执行；业务使用本机 ERP 会话。',
   });
-  const page = z.number().int().min(1).default(1).describe('页码，每次调用仅查询一页');
-  const pageSize = z.number().int().min(1).max(100).default(20).describe('每页记录数，最多100');
-  const tools = [
-    {
-      name: 'game_product_list', description: '按 SKU、中文品名或分类查询 ERP 商品及图片链接。搜索可能模糊匹配，需核对返回的 SKU。返回当前一页，totalCount 在各行中。',
-      schema: z.strictObject({
-        sku: z.string().trim().optional().describe('SKU 搜索关键字'),
-        nameCn: z.string().trim().optional().describe('中文品名关键字'),
-        catalogId: z.string().trim().optional().describe('类目 ID，多个用逗号分隔'),
-        productTypeCate: z.enum(['1', '4', '5', '6']).optional(), page, pageSize,
-      }),
-      run: api.gameProductList,
-    },
-    {
-      name: 'product_detail', description: '按 ERP 产品基础 ID 或 ASIN 查询商品详情、ERP 图片和全部 SKU/BOM 版本。id 与 asin 必须二选一。ASIN 先查询 ERP Listing 再按匹配的 SKU 获取详情，保留多个店铺和商品匹配，所有查询需登录。',
-      schema: z.strictObject({
-        id: z.number().int().positive().optional().describe('ERP 产品基础 ID，与 asin 二选一'),
-        asin: z.string().trim().regex(/^[a-zA-Z0-9]{10}$/).optional().describe('10位 ASIN，在 ERP 中搜索，与 id 二选一'),
-        maxPages: z.number().int().min(1).max(1000).default(100).describe('ASIN 和 SKU 查询各自最多读取的页数，每页100条'),
-      }).refine((input) => (input.id !== undefined) !== (input.asin !== undefined), 'Provide exactly one of id or asin'),
-      run: api.productDetail,
-    },
-    {
-      name: 'inventory_list', description: '按精确 SKU 和仓库代码查询国内仓库存。默认保留批次/BOM。预计可用不代表已签收库存。仓库代码可用 erp_options 查询。',
-      schema: z.strictObject({ sku: z.string().trim().min(1), stockCode: z.string().trim().min(1),
-        groupBy: z.enum(['batch', 'warehouse']).default('batch'), page, pageSize }),
-      run: api.inventoryList,
-    },
-    {
-      name: 'erp_options', description: '读取 ERP 实时仓库、状态和渠道枚举，不推断代码含义。',
-      schema: z.strictObject({ source: z.enum(['inventory', 'packing', 'batchWarehouses']) }),
-      run: api.erpOptions,
-    },
-  ];
-  for (const tool of tools) {
-    server.registerTool(tool.name, {
-      description: tool.description, inputSchema: tool.schema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    }, async (input) => {
-      let session;
-      try {
-        session = readSession();
-        if (!session || sessionExpired(session)) throw new AuthRequiredError('local session', 'Run new-erp login first; ERP session is missing or expired');
-        const result = await withErpContext(session, () => tool.run(input));
-        const output = Array.isArray(result) ? { list: result } : result;
-        return { content: [{ type: 'text', text: JSON.stringify(output) }], structuredContent: output };
-      } catch (error) {
-        const message = error instanceof AuthRequiredError ? 'ERP 登录失效或尚未登录，请在自己的终端运行 new-erp login' : error.message || 'ERP query failed';
-        return { isError: true, content: [{ type: 'text', text: redactSensitiveText(message, [session?.token, session?.username]) }] };
-      }
-    });
+
+  async function answer(operation, redact = true) {
+    try {
+      const output = await operation();
+      return response(output?.error?.code === 'LOGIN_REQUIRED' ? { ...output, error: loginGuide } : output,
+        output?.state === 'failed' || output?.state === 'interrupted');
+    } catch (error) {
+      if (error.code === 'LOGIN_REQUIRED') return response({ error: loginGuide }, true);
+      const message = error.issues
+        ? error.issues.map((issue) => `${issue.path.join('.') || 'params'}: ${issue.message}`).join('; ')
+        : error.message || 'ERP 操作失败';
+      return response({ error: { code: error.code || 'INVALID_CALL', message: (redact ? redactSensitiveText(message) : message).slice(0, 1200) } }, true);
+    }
   }
+
+  server.registerTool('erp_discover', {
+    description: '按关键词查找 ERP 能力；指定 operation 获取该项参数。',
+    inputSchema: z.strictObject({ query: z.string().trim().max(200).optional(), operation: z.string().trim().max(100).optional() }),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, (input) => answer(() => {
+    if (input.operation) {
+      if (input.query) throw new Error('query 与 operation 二选一');
+      const helper = helpers.get(input.operation);
+      return helper ? { name: input.operation, description: helper.description,
+        inputSchema: z.toJSONSchema(helper.schema, { io: 'input' }) } : catalog.describeOperation(input.operation);
+    }
+    const words = (input.query || '').toLowerCase().split(/\s+/).filter(Boolean);
+    const internal = [...helpers].filter(([name, helper]) => words.every((word) => `${name} ${helper.description}`.toLowerCase().includes(word)))
+      .map(([name, helper]) => ({ name, description: helper.description, effect: name === 'auth.login' || name === 'auth.logout' || name === 'jobs.resume' || name === 'jobs.cancel' ? 'local' : 'read' }));
+    return { operations: [...catalog.listOperations(input.query || ''), ...internal] };
+  }, false));
+
+  server.registerTool('erp_execute', {
+    description: '执行已发现的能力；导出需稳定 requestId，任务通过 jobs.status 查询。',
+    inputSchema: z.strictObject({ operation: z.string().trim().min(1).max(100),
+      params: z.record(z.string(), z.unknown()).default({}), requestId: z.string().min(1).max(128).optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, (input) => answer(async () => {
+    if (Buffer.byteLength(JSON.stringify(input.params)) > 64 * 1024) throw new Error('参数超过 64 KiB，请缩小查询范围');
+    const helper = helpers.get(input.operation);
+    if (helper) {
+      const params = helper.schema.parse(input.params);
+      if (input.operation === 'auth.login') return auth.login();
+      if (input.operation === 'auth.status') return auth.status();
+      if (input.operation === 'auth.logout') return auth.logout();
+      const session = auth.requireSession();
+      if (input.operation === 'jobs.status') return jobs.status(params.jobId, session);
+      if (input.operation === 'jobs.list') return jobs.list(session, params);
+      if (input.operation === 'jobs.resume') return jobs.resume(params.jobId, session, { requestId: input.requestId });
+      return jobs.cancel(params.jobId, session);
+    }
+    const operation = catalog.getOperation(input.operation);
+    const params = operation.schema.parse(input.params);
+    return jobs.start(operation.name, params, auth.requireSession(), { requestId: input.requestId });
+  }));
+
+  const closeServer = server.close.bind(server);
+  server.close = async () => { await auth.close(); await jobs.close(); await closeServer(); };
   return server;
 }
 
-const definition = { name: 'mcp', description: '启动本地 stdio MCP。标准输出仅用于协议；ERP 查询需先运行 new-erp login。', args: [] };
+const definition = { name: 'mcp', description: '启动按需发现和执行 ERP 能力的本地 stdio MCP。', args: [] };
 async function main() {
   const args = parseArgs(process.argv.slice(2), []);
   if (args.help) { process.stdout.write(formatHelp(definition)); return; }

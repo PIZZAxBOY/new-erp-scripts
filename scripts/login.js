@@ -3,7 +3,7 @@ const readline = require('node:readline/promises');
 const { Writable } = require('node:stream');
 const { ArgumentError, getBaseUrl, loginToken, normalizeBaseUrl, requiredString, runCli,
   withErpContext } = require('./shared.js');
-const { saveSession } = require('./local-session.js');
+const { saveSession, readSession } = require('./local-session.js');
 
 async function promptCredentials(username) {
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
@@ -29,7 +29,30 @@ async function promptCredentials(username) {
 }
 
 async function main(options = {}) {
-  const baseUrl = options.baseUrl ? normalizeBaseUrl(options.baseUrl) : getBaseUrl();
+  if (options.browser) {
+    let baseUrl = '';
+    try { baseUrl = normalizeBaseUrl(options.baseUrl || getBaseUrl()); } catch {}
+    let username = options.username || process.env.NEW_ERP_USERNAME || '';
+    if (!username) try { username = readSession()?.username || ''; } catch {}
+    const { runBrowserLogin } = require('./login-browser.js');
+    return runBrowserLogin({ defaults: { baseUrl, username },
+    ...(options.open === false ? { openBrowser: false } : {}) });
+  }
+  let baseUrl;
+  try {
+    baseUrl = options.baseUrl ? normalizeBaseUrl(options.baseUrl) : getBaseUrl();
+  } catch (error) {
+    if (!(error instanceof ArgumentError) || error.message !== 'NEW_ERP_BASE_URL is required') throw error;
+    if (!process.stdin.isTTY || !process.stderr.isTTY) {
+      throw new ArgumentError('首次登录需要 ERP 地址。请运行 new-erp login --baseUrl <ERP_URL>，或配置 NEW_ERP_BASE_URL；密码使用客户端私密输入或在自己的终端隐藏输入。');
+    }
+    const terminal = readline.createInterface({ input: process.stdin, output: process.stderr });
+    try {
+      baseUrl = normalizeBaseUrl(await terminal.question('ERP 地址: '));
+    } finally {
+      terminal.close();
+    }
+  }
   let username = String(options.username || process.env.NEW_ERP_USERNAME || '').trim();
   let password = process.env.NEW_ERP_PASSWORD;
   if (!password) ({ username, password } = await promptCredentials(username));
@@ -44,6 +67,8 @@ async function main(options = {}) {
 module.exports = { main };
 if (require.main === module) runCli({ name: 'login', description: '登录自己的 ERP 账号，仅在本机保存 token，不保存密码。',
   args: [
-    { name: 'baseUrl', type: 'string', help: 'ERP 地址；首次登录必填，也可配置 NEW_ERP_BASE_URL' },
+    { name: 'browser', type: 'bool', default: false, help: '打开本机临时网页，一次填写 ERP 网址、账号和密码' },
+    { name: 'open', type: 'bool', default: true, help: '浏览器模式自动打开页面；设为 false 时只显示登录链接' },
+    { name: 'baseUrl', type: 'string', help: 'ERP 地址；首次登录未配置时在终端提示输入，也可配置 NEW_ERP_BASE_URL' },
     { name: 'username', type: 'string', help: 'ERP 账号；留空时交互输入，也可用 NEW_ERP_USERNAME' },
   ], func: main });

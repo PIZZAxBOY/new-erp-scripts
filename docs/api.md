@@ -26,7 +26,7 @@ for (const product of products) {
 }
 ```
 
-示例 ASIN 需替换为实际值。CLI 为 `new-erp product-detail --asin B012345678`，MCP 为 `product_detail({ asin: 'B012345678' })`。
+示例 ASIN 需替换为实际值。CLI 为 `new-erp product-detail --asin B012345678`，MCP 为 `erp_execute({ operation: 'product_detail', params: { asin: 'B012345678' } })`，返回任务回执。MCP 覆盖本文件全部业务能力，参数按需发现，详见 [MCP 指南](./mcp.md)。
 
 查询仅访问当前配置的 ERP：
 

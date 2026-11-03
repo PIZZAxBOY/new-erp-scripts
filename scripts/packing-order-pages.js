@@ -21,4 +21,5 @@ async function main() {
   }
 }
 
+module.exports = { pages, args };
 if (require.main === module) main();

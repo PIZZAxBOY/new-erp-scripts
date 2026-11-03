@@ -105,7 +105,7 @@ async function main(options = {}) {
   return { taskId: String(task.id), query, boxes, ...(output ? { output, bytes: file.length } : { file }) };
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) {
   runCli({ name: 'packing-detail-export', description: '按扫描出库日期原生导出装箱明细 XLSX，等待任务完成后下载；空结果不创建文件。', args,
     func: (options) => main({ ...options, output: requiredString(options.output, 'output') }) });

@@ -18,5 +18,5 @@ async function main(options = {}) {
   return queryList('/products/outer-package-product/index', query, options, JSON.stringify);
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) runCli({ name: 'outer-package-list', description: '读取外包装与各版本头程信息，包括箱规、数量、尺寸、重量及实时枚举。', args, func: main });

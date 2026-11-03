@@ -106,7 +106,7 @@ async function main(argsValue) {
   return rows.map((row) => productRow(row, meta, Boolean(argsValue.raw)));
 }
 
-module.exports = { main };
+module.exports = { main, args };
 
 if (require.main === module) {
   runCli({

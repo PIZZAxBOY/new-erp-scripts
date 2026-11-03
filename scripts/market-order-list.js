@@ -31,7 +31,7 @@ async function main(options = {}) {
   });
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) {
   runCli({ name: 'market-order-list', description: '只读市场订单列表，保留订单、SKU、物流及实时枚举原字段；支持分页与 fetchAll。', args, func: main });
 }

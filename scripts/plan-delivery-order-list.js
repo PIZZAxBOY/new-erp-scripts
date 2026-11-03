@@ -22,5 +22,5 @@ async function main(options = {}) {
   });
 }
 
-module.exports = { main };
+module.exports = { main, args };
 if (require.main === module) runCli({ name: 'plan-delivery-order-list', description: '按总单号及发货仓只读历史配货明细，保留版本、跟单及已装数量字段。', args, func: main });
