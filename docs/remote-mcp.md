@@ -31,6 +31,12 @@ Authorization: Bearer <由管理员提供的访问令牌>
   ],
   "maxParallelExports": 3,
   "singleAccountDays": 31,
+  "salesData": {
+    "enabled": true,
+    "maxBytes": 10737418240,
+    "minFreeBytes": 1073741824,
+    "epoch": ""
+  },
   "salesCache": {
     "enabled": true,
     "ttlSeconds": 900,
@@ -61,15 +67,21 @@ Authorization: Bearer <由管理员提供的访问令牌>
 
 管理员使用本地登录流程生成新增账号的独立私有会话文件（权限 `600`），核验同源、不同身份和查询范围的数据权限等价，再将路径追加到 `sessionFiles`，按需要提高 `maxParallelExports`。等待运行和排队任务结束后重启独立 MCP 服务使配置生效，使用 `auth.status` 确认 `accounts` 与 `maxParallelExports`。任一配置账号过期或无效都会要求管理员处理，不静默跳过。远程客户端不需要任何账号设置，也不提供远程添加、登录或登出入口。
 
-### 远程销量缓存
+### 远程销量数据存储与短期缓存
 
-远程 MCP 的 `sales_volume_ranking` 默认启用完整结果缓存；JavaScript API、stdio MCP 和 `source: "list"` 不使用此共享缓存。缓存的是完整、解析并校验过的排名数据，在 SKU 过滤、排序和分页之前读取，因此同一精确查询的不同页和非 `mean` 排序可以复用。不同日期范围不会互相复用，也不从月度缓存拼接任意区间。每次 MCP 请求仍须通过当前 ERP 会话认证；缓存身份部分只使用账号身份哈希，不含访问令牌。
+永久销量数据层仅用于远程 HTTP MCP 的 `sales_volume_ranking`；JavaScript API、stdio MCP 和 `source: "list"` 不使用此数据层或共享 TTL 缓存。默认 `salesData.enabled: true`，只保存此排名导出层的已解析完整结果，不代表存储了全部 ERP 数据。数据写入 `dataDir/.sales-data`，以不可变 gzip JSON 快照和校验元数据保存；每个未压缩快照最多 64 MiB。快照不设过期时间、不自动淘汰，也不是备份。容量默认最多 10 GiB，并在写入后仍需至少保留 1 GiB 文件系统可用空间；超限会明确报错，已有快照不会因此删除。超过 32 个缺口时，系统改为重新导出整个请求范围。
 
-`salesCache` 可省略，默认 `enabled: true`、`ttlSeconds: 900`、`maxBytes: 268435456`（256 MiB）、`maxEntries: 256`、`epoch: ""`。有效范围分别为：TTL `1`–`86400` 秒、总字节数 `1024`–`1073741824`、条目数 `1`–`10000`，`enabled` 必须是布尔值；`epoch` 是不超过 200 字符的管理员版本标记。每条记录另有 64 MiB 上限；超过限制的结果仍可用于本次响应，但不会持久化。缓存存放在 `dataDir/.sales-cache`，使用私有目录/文件权限、SHA-256 校验和、原子写入，并在 TTL 或容量限制触发时优先清除最早写入的记录。禁用缓存会直接调用原导出流程。
+`salesData` 可省略，默认值为 `enabled: true`、`maxBytes: 10737418240`、`minFreeBytes: 1073741824`、`epoch: ""`。容量值以字节为单位；`maxBytes` 至少 1024，`minFreeBytes` 为非负整数，`epoch` 最长 200 字符。永久数据没有 TTL；普通查询可复用任意久以前下载的结果。`localData.oldestFetchedAt` 和 `localData.newestFetchedAt` 是 ERP 文件下载时间，不是上游统计快照时间；不同导出可能反映不同的 ERP 状态。不可变指本地快照文件不会自动改写或淘汰；数据层只覆盖销量排名 CSV，不保证不同导出代表一致的上游统计时点。
 
-缓存键由 schema 版本、精确查询与起止时间、账号身份哈希、账号池范围、并发上限、`singleAccountDays`、是否按 `mean` 排序以及 `epoch` 组成。ERP 会话仍有效并不能证明上游数据权限没有变化；权限或授权范围变化后，管理员必须更新 `epoch`，避免复用旧权限范围的数据。TTL 从完整数据下载、解析和校验完成后计算；默认可复用 15 分钟内下载的结果，但 ERP 统计快照可能更早，不能保证数据仅滞后 15 分钟。缓存不是实时查询或不可变历史快照。旧的 `.mcp-jobs` 任务结果不受 `salesCache` 的字节数/条目数限制，也不会自动清理。
+只有同时匹配已配置的 JY 顶级物料范围、按 SKU 汇总、月度维度、无 SKU/平台/分类筛选且 `sort` 为 `sales` 或 `sku` 的查询，才允许组合时间片段。此范围内，其他排序、年维度及其他账号池范围只复用完全相同的请求快照；零、负值或非整数销量快照也仅允许精确请求复用，不用于片段组合。完整月份数据不能推算部分月份；只有时间范围完全覆盖目标片段的快照可用，保存的精确边缘片段则可与同月其他不重叠片段组合。新快照覆盖重叠时间时会使旧快照的整个重叠片段不再参与组合，但旧版本仍保留。缺失区间按顺序经现有账号池导出；只有覆盖完整且无重叠才合并。组合结果只列出有正销量的 SKU，`mean` 为 `null`，并在 `localData.skuPolicy` 标明 `positive-sales`；不从片段推算均值。
 
-第一次请求和后续分页使用各自新的 `requestId`；相同请求、不同页可以命中同一完整缓存：
+按完整精确查询复用时 `localData.mode` 为 `exact`；组合来源可以是 `assembled` 或 `mixed`，含缺口导出时也可能为 `export`。结果提供 `localData.snapshots`、`oldestFetchedAt`、`newestFetchedAt`；`cache.permanent` 表示命中此永久层。每次请求仍须检查 ERP 会话；账号身份以哈希隔离，且缓存数据不保存访问令牌。权限变化后，管理员必须同时更新 `salesData.epoch` 和 `salesCache.epoch`，使旧权限下的数据不能被复用；本地仍有效的会话无法自动发现 ERP 授权变化。
+
+`forceRefresh: true` 必须配合新的 `requestId`：在重新导出前使目标范围内重叠的本地覆盖失效；旧快照仍在磁盘上，但不会作为该范围的回退结果。即使刷新失败，后续请求也必须重新补齐已失效的覆盖。相同 `requestId` 始终返回原任务，不会重新刷新。
+
+`salesData.enabled: false` 时恢复之前的短期 `salesCache`。该缓存默认启用，TTL 为 900 秒，最大 256 MiB/256 条，最多 1 GiB；支持配置 TTL `1`–`86400` 秒、容量 `1024`–`1073741824` 字节、条目数 `1`–`10000` 及最长 200 字符的 `epoch`。缓存保存在 `dataDir/.sales-cache`，TTL 从完整数据下载、解析和校验完成后计时；上游统计时间可能早于下载时间。设置 `salesCache.enabled: false` 会跳过短期缓存；若 `salesData` 与 `salesCache` 都禁用，则每次都重新导出。长期快照配额不约束 `.mcp-jobs` 任务工件，也不会自动清理这些工件；历史 `.mcp-jobs` 数据不会自动导入，导入前须由管理员核验其覆盖范围。
+
+第一次请求和后续分页使用各自新的 `requestId`；永久数据层会按精确覆盖复用，或对符合条件的月度范围只导出缺口：
 
 ```js
 erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-page-1', params: {
@@ -83,7 +95,7 @@ erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-page-2', 
 } })
 ```
 
-返回行会标记 `cache.hit`、`cache.fetchedAt` 和 `cache.expiresAt`；未命中时还含 `cache.stored`。要强制重新导出，使用 `forceRefresh: true` 和新的 `requestId`：
+`salesData` 启用时，返回行包含 `localData` 覆盖信息和 `cache.permanent`；新请求仍可能只导出缺口或使用已有快照。要强制重新导出，使用 `forceRefresh: true` 和新的 `requestId`：
 
 ```js
 erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-refresh-001', params: {
@@ -92,7 +104,7 @@ erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-refresh-0
 } })
 ```
 
-强制刷新会先删除该精确查询的旧缓存；如果新导出失败，不回退到旧结果。复用原 `requestId` 始终返回原任务，不会触发刷新。权限变化应更新 `epoch`；`forceRefresh` 适合获取较新的上游数据。缓存容量配置只约束 `.sales-cache`，不约束已有或新建的 `.mcp-jobs` 工件。
+`salesData.enabled: false` 时，`cache.hit`、`cache.fetchedAt`、`cache.expiresAt` 和未命中时的 `cache.stored` 描述短期缓存；此模式下 `forceRefresh` 会跳过对应缓存并重新导出。永久快照与短期缓存的容量配置都不约束已有或新建的 `.mcp-jobs` 工件。
 
 ## 请求限制与任务结果
 

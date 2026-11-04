@@ -349,7 +349,10 @@ test('private configuration, sessions, process lock, and Bun loopback binding ar
   assert.equal(runtimeOptions.maxParallelExports, 4);
   assert.equal(runtimeOptions.singleAccountDays, 31);
   assert.equal(runtimeOptions.salesCache.ttlSeconds, 900);
-  for (const invalid of [{ singleAccountDays: 0 }, { salesCache: { ttlSeconds: -1 } }, { salesCache: { enabled: 'yes' } }]) {
+  assert.equal(runtimeOptions.salesData.enabled, true);
+  assert.equal(runtimeOptions.salesData.maxBytes, 10 * 1024 ** 3);
+  for (const invalid of [{ singleAccountDays: 0 }, { salesCache: { ttlSeconds: -1 } }, { salesCache: { enabled: 'yes' } },
+    { salesData: { enabled: 'yes' } }, { salesData: { maxBytes: 0 } }, { salesData: { minFreeBytes: -1 } }]) {
     assert.throws(() => validateConfig({ ...config, ...invalid }));
   }
   await service.close();

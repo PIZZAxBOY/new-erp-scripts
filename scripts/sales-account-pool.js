@@ -157,7 +157,7 @@ function createPool({ getSessions, scope, download, maxParallelExports, singleAc
     if (failure) throw invalid('a segment failed; no partial ranking returned');
     const parts = results.map(r => r.value);
     if (new Set(parts.map(p => p.fileIdentity)).size !== parts.length) throw invalid('ERP output-file collision; discard all segments');
-    return { rows: mergeParts(parts, query.date_dimension), taskId: parts[0].taskId, parts: parts.length };
+    return { rows: mergeParts(parts, query.date_dimension), taskId: parts[0].taskId, taskIds: parts.map(p => String(p.taskId)), parts: parts.length };
   };
 }
 

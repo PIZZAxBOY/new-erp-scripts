@@ -136,4 +136,4 @@ function createSalesCache({ rootDir, config: value, now = Date.now }) {
   return { load };
 }
 
-module.exports = { createSalesCache, normalizeCacheConfig };
+module.exports = { createSalesCache, normalizeCacheConfig, expectedPeriods, validateRows };

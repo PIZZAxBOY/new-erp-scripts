@@ -65,8 +65,8 @@ JavaScript API 保留原有入口；旧的终端子命令和随包技能已移�
 
 | 需求 | operation | 成本与范围 |
 | --- | --- | --- |
-| 销量排名、热销前 N 名 | `sales_volume_ranking` | 默认顶级物料；异步导出完整 CSV 后排序截取，无需先查分类 |
-| 指定 SKU 销量 | `sales_volume_ranking` | 导出匹配结果后精确过滤，保留平台维度 |
+| 销量排名、热销前 N 名 | `sales_volume_ranking` | 远程 HTTP 可复用完整快照或仅导出缺口；统一排序截取，无需先查分类 |
+| 指定 SKU 销量 | `sales_volume_ranking` | 精确筛选，保留平台维度；不从其他 SKU 的月度快照拼接 |
 | 各分类的 SKU 记录行数 | `category_summary` | 不是销量/售出件数；总是抓取全部分页，默认每页100条。调小 pageSize 不会限制总条数 |
 | 需要销量 CSV 文件 | `sales_volume_export` | 创建异步 ERP 导出任务；不支持 productTypeCate 筛选，不继承排名默认值 |
 
@@ -82,9 +82,9 @@ erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-sales-2026-10-to
 } })
 ```
 
-`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。分类记录计数保持全部类型默认值。排名默认 `source: 'export'`，解析完整 CSV 并全局排序，最后按 page/pageSize 截取；Top10 也需要完整数据，不能承诺更快。远程 HTTP MCP 可复用同一精确查询的短期完整缓存；JS API 和 stdio MCP 每次执行新的导出。`fetchAll: true` 返回全部排名，指定 `sku` 时精确过滤并返回全部匹配结果。远程缓存的权限隔离、数据新鲜度和强制刷新见[远程 MCP 文档](./remote-mcp.md#远程销量缓存)。
+`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。分类记录计数保持全部类型默认值。排名默认 `source: 'export'`，解析 CSV 并全局排序，最后按 page/pageSize 截取。远程 HTTP MCP 默认启用不自动过期的完整销量快照，可复用精确覆盖；仅已验证的 JY 顶级物料、SKU 汇总、月度范围且按销量或 SKU 排序时，才会按完整月份片段复用并只导出缺口。其他范围仅复用完全相同的快照。`source: 'list'`、JS API 和 stdio MCP 不使用此持久层或共享 TTL 缓存。`salesData.enabled: false` 时改用短期 `salesCache`；两者都禁用时每次重新导出。`fetchAll: true` 返回全部排名，指定 `sku` 时精确过滤并返回全部匹配结果。快照的权限隔离、数据来源时间与强制刷新见[远程 MCP 文档](./remote-mcp.md#远程销量数据存储与短期缓存)。
 
-通过 `jobs.status` 轮询同一个 jobId；进度包含提交、等待、下载、解析和上游 taskId。重试或轮询使用相同 requestId，不要每次轮询新建导出；远程缓存的强制刷新则必须使用新的 requestId。最长等待约20分钟，CSV 上限64MiB；后台任务失败或 CSV 无法识别会报错，不返回部分排名。实际 CSV 表头尚未用生产导出验证。
+通过 `jobs.status` 轮询同一个 jobId；进度包含提交、等待、下载、解析和上游 taskId（账号池任务还会返回 `taskIds`）。重试或轮询使用相同 requestId，不要每次轮询新建导出；远程数据或 TTL 缓存的强制刷新必须使用新的 requestId，同一 ID 始终复用原任务。最长等待约20分钟，CSV 上限64MiB；后台任务失败或 CSV 无法识别会报错，不返回部分排名。实际 CSV 表头尚未用生产导出验证。
 
 短范围需要旧单页接口时可显式设置 `source: 'list'`（MCP 仍要求 requestId）：单页沿用 ERP 原生销量降序，其他排序、SKU 精确查询需要完整分页，maxPages 只对 list 生效。不要先试长范围列表、超时后再重复提交导出。需要超过100名可用一次 fetchAll 并读取结果，避免为每页重复导出。
 
