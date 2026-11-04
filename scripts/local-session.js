@@ -17,7 +17,7 @@ function readSession() {
     descriptor = fs.openSync(sessionFilePath(), fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
     const stat = fs.fstatSync(descriptor);
     if (!stat.isFile() || (process.platform !== 'win32' && (stat.mode & 0o077))) {
-      throw new Error('Session file must be a private regular file; run new-erp login again');
+      throw new Error('Session file must be a private regular file; authenticate again with auth.login through erp_execute');
     }
     const session = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
     if (session?.version !== 1 || typeof session.baseUrl !== 'string' || !session.baseUrl
@@ -27,7 +27,7 @@ function readSession() {
     return session;
   } catch (error) {
     if (error.code === 'ENOENT') return null;
-    throw new Error('Cannot read local ERP session; run new-erp login again');
+    throw new Error('Cannot read local ERP session; authenticate again with auth.login through erp_execute');
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }

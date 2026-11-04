@@ -1,7 +1,6 @@
-#!/usr/bin/env node
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { ArgumentError, CommandExecutionError, positiveInteger, redactSensitiveText, resolveToken, requestJson, requiredString, runCli } = require('./shared.js');
+const { ArgumentError, CommandExecutionError, positiveInteger, redactSensitiveText, resolveToken, requestJson, requiredString } = require('./shared.js');
 const { main: packingOrderList, args: listArgs, packingQuery, historyQuery, urlFor } = require('./packing-order-list.js');
 const { queryPages, selectionValue } = require('./query.js');
 
@@ -106,7 +105,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-if (require.main === module) {
-  runCli({ name: 'packing-detail-export', description: '按扫描出库日期原生导出装箱明细 XLSX，等待任务完成后下载；空结果不创建文件。', args,
-    func: (options) => main({ ...options, output: requiredString(options.output, 'output') }) });
-}

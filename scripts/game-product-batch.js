@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 const {
   asNumberOrNull,
   ArgumentError,
@@ -10,8 +9,8 @@ const {
   positiveInteger,
   requestJson,
   requiredString,
-  runCli,
 } = require('./shared.js');
+const { validatePage } = require('./query.js');
 
 function parseSkus(value) {
   const raw = requiredString(value, 'skus');
@@ -48,7 +47,8 @@ async function queryOneSku({ token, querySku, pageSize, productTypeCate, catalog
     headers: { token },
   });
 
-  const rows = Array.isArray(json?.data?.list) ? json.data.list : [];
+  const totalCount = validatePage(json?.data, 1, pageSize, 'new-erp game-product-batch');
+  const rows = json.data.list;
   if (rows.length === 0) {
     return [{
       querySku,
@@ -70,7 +70,6 @@ async function queryOneSku({ token, querySku, pageSize, productTypeCate, catalog
     }];
   }
 
-  const totalCount = Number(json?.data?.totalCount ?? rows.length);
   return rows.map((row) => {
     const skuInfo = row?.sku_info || {};
     return {
@@ -124,12 +123,3 @@ async function main(argsValue) {
 }
 
 module.exports = { main, args };
-
-if (require.main === module) {
-  runCli({
-    name: 'game-product-batch',
-    description: '批量查询 new-erp 产品 SKU。',
-    args,
-    func: main,
-  });
-}

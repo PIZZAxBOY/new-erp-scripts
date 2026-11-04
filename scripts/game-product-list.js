@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 const {
   asNumberOrNull,
   ArgumentError,
@@ -9,7 +8,6 @@ const {
   resolveToken,
   positiveInteger,
   requestJson,
-  runCli,
 } = require('./shared.js');
 
 const PRODUCT_TYPE_CATE_MAP = {
@@ -107,12 +105,3 @@ async function main(argsValue) {
 }
 
 module.exports = { main, args };
-
-if (require.main === module) {
-  runCli({
-    name: 'game-product-list',
-    description: '查询 new-erp 产品列表。',
-    args,
-    func: main,
-  });
-}

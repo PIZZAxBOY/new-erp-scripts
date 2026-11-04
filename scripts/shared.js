@@ -32,117 +32,27 @@ function redactSensitiveText(value, secrets = []) {
       '$1[REDACTED]');
 }
 
-class CliError extends Error {
+class ErpError extends Error {
   constructor(message, exitCode = 1) {
     super(redactSensitiveText(message));
     this.exitCode = exitCode;
   }
 }
 
-class ArgumentError extends CliError {}
+class ArgumentError extends ErpError {}
 
-class AuthRequiredError extends CliError {
+class AuthRequiredError extends ErpError {
   constructor(host, message) {
     super(`${message} (${host})`);
     this.host = host;
   }
 }
 
-class CommandExecutionError extends CliError {}
+class CommandExecutionError extends ErpError {}
 
-class EmptyResultError extends CliError {
+class EmptyResultError extends ErpError {
   constructor(command, message) {
     super(`${command}: ${message}`);
-  }
-}
-
-function parseBoolean(value, label) {
-  if (value === true || value === false) return value;
-  const text = String(value).trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
-  if (['0', 'false', 'no', 'off'].includes(text)) return false;
-  throw new ArgumentError(`${label} must be true or false`);
-}
-
-function parseArgs(argv, definitions) {
-  const byName = new Map(definitions.map((definition) => [definition.name, definition]));
-  const values = Object.fromEntries(definitions.map((definition) => [definition.name, definition.default]));
-  values.help = false;
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === '--help' || argument === '-h') {
-      values.help = true;
-      continue;
-    }
-    if (!argument.startsWith('--')) {
-      throw new ArgumentError('unexpected positional argument; use --help for supported options');
-    }
-
-    const equalsIndex = argument.indexOf('=');
-    const name = equalsIndex === -1 ? argument.slice(2) : argument.slice(2, equalsIndex);
-    const inlineValue = equalsIndex === -1 ? undefined : argument.slice(equalsIndex + 1);
-    const definition = byName.get(name);
-    if (!definition) throw new ArgumentError(`unknown option: --${name}`);
-
-    if (definition.type === 'bool') {
-      const next = argv[index + 1];
-      if (inlineValue !== undefined) {
-        values[name] = parseBoolean(inlineValue, name);
-      } else if (next !== undefined && !next.startsWith('--') && /^(true|false|yes|no|on|off|1|0)$/i.test(next)) {
-        values[name] = parseBoolean(next, name);
-        index += 1;
-      } else {
-        values[name] = true;
-      }
-      continue;
-    }
-
-    const rawValue = inlineValue ?? argv[++index];
-    if (rawValue === undefined || rawValue.startsWith('--')) {
-      throw new ArgumentError(`--${name} requires a value`);
-    }
-    if (definition.type === 'int') {
-      const number = Number(rawValue);
-      if (!Number.isInteger(number)) throw new ArgumentError(`--${name} must be an integer`);
-      values[name] = number;
-    } else {
-      values[name] = rawValue;
-    }
-  }
-
-  return values;
-}
-
-function formatHelp({ name, description, args }) {
-  const lines = [`Usage: new-erp ${name} [options]`, '', description, '', 'Options:'];
-  for (const argument of args) {
-    const value = argument.type === 'bool' ? '' : ` <${argument.type}>`;
-    const defaultText = argument.default === '' || argument.default === undefined
-      ? ''
-      : ` (default: ${argument.default})`;
-    const choicesText = argument.choices ? ` [${argument.choices.join('|')}]` : '';
-    lines.push(`  --${argument.name}${value}${choicesText}  ${argument.help || ''}${defaultText}`.trimEnd());
-  }
-  lines.push('  -h, --help  show this help');
-  return `${lines.join('\n')}\n`;
-}
-
-async function runCli({ name, description, args, func }) {
-  let secrets = [];
-  try {
-    const values = parseArgs(process.argv.slice(2), args);
-    secrets = [values.username, values.password, values.token];
-    if (values.help) {
-      process.stdout.write(formatHelp({ name, description, args }));
-      return;
-    }
-    const result = await func(values);
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  } catch (error) {
-    const message = redactSensitiveText(error instanceof Error ? error.message : String(error), secrets);
-    process.stderr.write(`Error: ${message}\n`);
-    process.exitCode = error?.exitCode || 1;
   }
 }
 
@@ -155,7 +65,7 @@ function readConfig() {
   const filename = configFilePath();
   if (!fs.existsSync(filename)) {
     if (String(process.env.NEW_ERP_CONFIG ?? '').trim()) {
-      throw new CommandExecutionError(`new-erp config file not found: ${filename}`);
+      throw new CommandExecutionError(`ERP config file not found: ${filename}`);
     }
     return {};
   }
@@ -166,7 +76,7 @@ function readConfig() {
     }
     return config;
   } catch {
-    throw new CommandExecutionError('failed to read new-erp config: expected a readable JSON object');
+    throw new CommandExecutionError('failed to read ERP config: expected a readable JSON object');
   }
 }
 
@@ -317,7 +227,7 @@ async function loginToken({ username, password, signal }) {
 
   const json = await requestJson(loginURL, {
     method: 'POST',
-    label: 'new-erp login',
+    label: 'ERP login',
     headers: {
       'Content-Type': 'application/json',
       Origin: baseUrl,
@@ -339,7 +249,7 @@ async function loginToken({ username, password, signal }) {
 function getTokenFromArgs(args) {
   const context = erpContext.getStore();
   if (context) {
-    if (!context.token) throw new AuthRequiredError('local session', 'Run new-erp login first');
+    if (!context.token) throw new AuthRequiredError('local session', 'Use erp_execute with operation auth.login to create a saved session');
     return context.token;
   }
   const token = String(args.token ?? '').trim() || configuredValue('NEW_ERP_TOKEN', 'token');
@@ -348,7 +258,7 @@ function getTokenFromArgs(args) {
   if (!session) return null;
   const baseUrl = getBaseUrl();
   if (normalizeBaseUrl(session.baseUrl) !== baseUrl || sessionExpired(session)) {
-    throw new AuthRequiredError(new URL(baseUrl).host, 'Saved ERP session does not match this URL or has expired; run new-erp login');
+    throw new AuthRequiredError(new URL(baseUrl).host, 'Saved ERP session does not match this URL or has expired; use auth.login through erp_execute');
   }
   return session.token;
 }
@@ -445,17 +355,14 @@ module.exports = {
   catalogNamesForIds,
   expandCatalogIds,
   fetchCatalogRows,
-  formatHelp,
   getBaseUrl,
   getTokenFromArgs,
   loginToken,
   normalizeBaseUrl,
-  parseArgs,
   positiveInteger,
   requestJson,
   redactSensitiveText,
   requiredString,
   resolveToken,
-  runCli,
   withErpContext,
 };

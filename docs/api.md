@@ -1,6 +1,11 @@
 # JavaScript API 与数据口径
 
-安装与配置见 [README](../README.md#javascript-api)。函数接收与 CLI 同名的选项对象，返回结果或抛出错误；配置从调用时的当前工作目录或环境变量读取。
+安装与配置见 [README](../README.md#javascript-api)。函数接收选项对象，返回结果或抛出错误；配置从调用时的当前工作目录或环境变量读取。
+
+直接调用 API 时可传 `token`，或通过 `username`、`password` 登录；也可使用
+`NEW_ERP_TOKEN`、`NEW_ERP_USERNAME`、`NEW_ERP_PASSWORD`。基础地址优先使用
+`NEW_ERP_BASE_URL`，其次读取 `NEW_ERP_CONFIG` 指定 JSON 文件的 `baseUrl`，最后使用默认配置。
+API 不会把凭据写入返回值、`source` 或错误文本；MCP 客户端应先通过 `auth.login` 建立会话。
 
 ## 基础查询与客户端
 
@@ -12,6 +17,10 @@
 `exportOuterPackages({ token, flowStatus })` 使用 ERP 外包装导出任务；`flowStatus` 为 1–5，返回 `{ taskId, file }`，其中 `file` 是 XLSX Buffer。
 
 `exportGameProducts({ disused: true })` 使用游戏类淘汰产品原生导出接口 `/products/game-product-list/disuse-product-export`；返回下载中心任务 ID 和 XLSX，默认字段为 SKU、品名、单价。
+
+`gameProductBatch` 在解释空结果为未找到前会校验分页元数据、列表存在性及行数；
+`salesVolumeRanking`（包括 `categorySummary`）会校验页码、页大小、总数、列表形状和本页行数。
+ERP 返回缺失或不一致的分页数据时直接抛错，不把损坏响应当作空结果。
 
 ## 按 ASIN 查询 ERP 商品
 
@@ -26,7 +35,7 @@ for (const product of products) {
 }
 ```
 
-示例 ASIN 需替换为实际值。CLI 为 `new-erp product-detail --asin B012345678`，MCP 为 `erp_execute({ operation: 'product_detail', params: { asin: 'B012345678' } })`，返回任务回执。MCP 覆盖本文件全部业务能力，参数按需发现，详见 [MCP 指南](./mcp.md)。
+示例 ASIN 需替换为实际值。MCP 为 `erp_execute({ operation: 'product_detail', params: { asin: 'B012345678' } })`，返回任务回执。MCP 覆盖本文件全部业务能力，参数按需发现，详见 [MCP 指南](./mcp.md)。
 
 查询仅访问当前配置的 ERP：
 
@@ -57,11 +66,11 @@ ASIN 查询在原商品详情字段之外提供：
 
 `stockingAssemblyInbound` 按精确 SKU 和入库时间汇总备货拼装实际入库流水，用拼装单号核对生产任务。它只统计备货拼装，不包含采购进货或调库。
 
-销量导出只复用查询条件完全匹配且没有额外非空筛选的任务。商品、外包装和装箱导出拒绝多个匹配的新任务，并在识别任务后固定任务ID，避免后续轮询切换到其他任务。
+销量导出每次调用都会提交新的 ERP 导出请求，只匹配提交前不存在、且路由、完整查询条件和日期范围均完全匹配的新任务；不会复用历史成功或失败任务。MCP 层仍以稳定的 `requestId` 对同一请求去重。商品、外包装和装箱导出同样拒绝多个匹配的新任务，并在识别任务后固定任务 ID，避免后续轮询切换到其他任务。
 
 ## 市场订单
 
-`marketOrderList(options)` / `new-erp market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 ERP 接口文档及前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
+`marketOrderList(options)` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 ERP 接口文档及前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
 
 | 选项 | ERP 参数与含义 |
 | --- | --- |
@@ -115,7 +124,7 @@ const detail = await exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER
 // 用保存的ID恢复：exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER', stockFrom: 'DEMO-FROM', taskId })
 ```
 
-对应 CLI 为 `new-erp packing-order-list`、`new-erp packing-order-pages` 和 `new-erp packing-detail-export`。逐页命令每页输出一行 JSON（NDJSON），遵守标准输出背压；导出命令须传 `--output ./packing.xlsx`，可用 `--taskId` 恢复。导出保持 ERP 原文，包含 SKU、数量、渠道、箱实重kg和尺寸cm，不直接返回四种运输占比或货代最终结算重量。
+MCP 的 `packing_order_pages` 操作逐页读取并保存为本地 NDJSON 文件，通过 `jobs.status` 获取任务结果和文件路径。装箱导出任务也通过 `jobs.status` 查询，或按文档使用 `taskId` 恢复。导出保持 ERP 原文，包含 SKU、数量、渠道、箱实重kg和尺寸cm，不直接返回四种运输占比或货代最终结算重量。
 
 ### 请求数验证
 
@@ -123,7 +132,7 @@ const detail = await exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER
 
 ## 配货、库存与包装
 
-以下接口均支持 ES module 导入，同时提供同名连字符 CLI（如 `packingBatchList` 对应 `new-erp packing-batch-list`）。只读取 ERP 数据，不创建或修改业务单据。
+以下接口均支持 ES module 导入。只读取 ERP 数据，不创建或修改业务单据。
 
 | API | 必填选项 | 返回内容 |
 | --- | --- | --- |

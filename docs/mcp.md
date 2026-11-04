@@ -1,17 +1,22 @@
 # 安装与使用本地 MCP
 
-需要 Node.js 20+。MCP 在用户自己的电脑运行，使用各自的 ERP 登录和权限，无需部署服务器。MCP 用户无需安装仓库的可选 CLI 技能。
+需要 Node.js 20+。MCP 在用户自己的电脑运行，使用各自的 ERP 登录和权限，无需部署服务器。
 
 ## 安装并接入客户端
 
 ```sh
 npm install -g new-erp-mcp
-new-erp setup --client codex
 ```
 
-重启 Codex 或 T3 Code 以加载 MCP。`setup` 需要已安装的 Codex CLI，将当前 Node.js 和 MCP 脚本的绝对路径写入客户端配置，不写入账号或凭据。用 `codex mcp get new-erp` 检查路径；`new-erp setup --dryRun` 预览注册命令。不要用临时 `npx` 安装目录运行 `setup`。
+将启动命令配置为标准 stdio MCP。Codex 可用全局安装包手动注册：
 
-其他支持本地 stdio 的客户端可将 `new-erp mcp` 配置为启动命令。标准输入和输出仅传输 MCP 协议。
+```sh
+codex mcp add new-erp -- new-erp-mcp
+```
+
+也可不全局安装，直接配置 `npx -y new-erp-mcp`。其他支持本地 stdio 的客户端将
+`new-erp-mcp`（或 `npx -y new-erp-mcp`）作为启动命令，标准输入和输出仅传输 MCP 协议。
+旧版 `new-erp mcp`、`new-erp setup` 配置需要删除并重新注册；保存的登录会话不会丢失。
 
 ## 首次在网页完成配置
 
@@ -25,14 +30,8 @@ erp_execute({ operation: 'auth.login', params: {} })
 
 页面五分钟后失效，成功、取消或过期后关闭临时服务。登录失败可在原页面重试，不会覆盖原会话。Agent 可查询 `auth.status`，登录成功后重试原业务操作，无需重启 MCP。
 
-也可独立运行 CLI：
-
-```sh
-new-erp login --browser
-new-erp login --browser --open false
-```
-
-第二条只输出登录链接。网页不可用时，使用客户端私密输入能力或在自己的终端运行 `new-erp login --baseUrl https://your-erp.example.com`，隐藏输入密码。不要在聊天正文或命令参数中提交密码。
+登录仅通过 MCP 的 `auth.login` 完成。网页不可用时，在返回的本机 URL 中手动打开页面；
+不要在聊天正文、工具参数或任何命令参数中提交密码。
 
 ## 按需发现能力和参数
 
@@ -53,7 +52,8 @@ erp_execute({ operation: 'product_detail', params: { asin: 'B012345678' } })
 
 ASIN 是示例值。其他业务参数以对应的 `erp_discover({ operation })` 结果为准；未知参数、错误类型和凭据参数会被拒绝。查询只使用本机保存的个人会话，不回退到环境或项目中的共享 token。
 
-0.3 起，原四个直接 MCP 工具改为业务能力名称。例如原 `product_detail({ asin })` 改为上面的 `erp_execute` 调用。CLI 和 JavaScript API 保留原有入口。
+0.3 起，原四个直接 MCP 工具改为业务能力名称。例如原 `product_detail({ asin })` 改为上面的 `erp_execute` 调用。
+JavaScript API 保留原有入口；旧的终端子命令和随包技能已移除。
 
 ## 读取任务结果和导出文件
 
@@ -81,7 +81,7 @@ erp_execute({
 
 文件保存在本机，结果返回 `artifact.path`、类型、字节数等信息；不会把 XLSX、CSV、Base64 或整份大型结果塞进上下文。大型 JSON 完整保存到文件并提供有限预览；逐页装箱读取保存为 NDJSON，分页失败会标记不完整并返回失败，不静默截断。
 
-默认导出目录为 `~/Downloads/new-erp`，可用 `NEW_ERP_EXPORT_DIR` 指定专用目录。macOS/Linux 的私有任务目录和文件使用 `0700`、`0600` 权限；Windows 使用当前用户的文件权限。MCP 管理输出路径，不接受 CLI 的 `output` 参数。任务记录不保存 token 或密码；换账号后不能通过 MCP 读取其他账号的任务。
+默认导出目录为 `~/Downloads/new-erp`，可用 `NEW_ERP_EXPORT_DIR` 指定专用目录。macOS/Linux 的私有任务目录和文件使用 `0700`、`0600` 权限；Windows 使用当前用户的文件权限。MCP 管理输出路径，不接受调用方的 `output` 参数。任务记录不保存 token 或密码；换账号后不能通过 MCP 读取其他账号的任务。
 
 ## 恢复装箱导出与取消任务
 
@@ -105,10 +105,16 @@ erp_execute({
 
 ```sh
 npm install -g new-erp-mcp@latest
-new-erp setup --client codex
+codex mcp add new-erp -- new-erp-mcp
 ```
 
-更新后重启客户端以加载新代码。会话文件在包目录之外，有效会话会保留，通常无需重新登录；失效后重新打开登录页。`auth.logout` 或 `new-erp logout` 删除本机会话，不撤销 ERP 上游 token；已开始的任务继续使用原账号快照，切换账号后不能读取原账号的任务。
+更新后重启客户端以加载新代码。会话文件在包目录之外，有效会话会保留，通常无需重新登录；失效后重新打开登录页。`auth.logout` 删除本机会话，不撤销 ERP 上游 token；已开始的任务继续使用原账号快照，切换账号后不能读取原账号的任务。
+
+## 范围与安全
+
+业务查询按用户授权与明确范围执行。核对 SKU、ASIN、国家、订单编号、仓库、状态、日期和分页完整性；ERP 模糊搜索可能返回前缀或相似项。计划、预测库存与预计可用量不是实际签收凭证。不同批次、BOM 与包装版本应保留原样；重量和尺寸按 ERP 返回单位解释，不作推断。原始响应可能含敏感数据，复用或分享前先脱敏。
+
+本次重构使用本地合成响应和 mock 服务验证，没有进行认证后的生产 ERP 查询。
 
 ## 打包验证
 

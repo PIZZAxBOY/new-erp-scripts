@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const { z } = require('zod/v4');
-const { parseArgs, formatHelp, redactSensitiveText } = require('./shared.js');
+const { redactSensitiveText } = require('./shared.js');
 const { createAuth } = require('./mcp-auth.js');
 const catalog = require('./mcp-catalog.js');
 const { createJobs } = require('./mcp-jobs.js');
@@ -20,9 +20,8 @@ const helpers = new Map([
 
 const loginGuide = {
   code: 'LOGIN_REQUIRED',
-  message: '先调用 erp_execute，operation 为 auth.login，params 为 {}。把返回的本机网页链接交给用户，由用户一次填写 ERP 网址、账号和密码；Agent 不查看或填写密码。登录后重试原查询，无需重启 MCP。',
+  message: '调用 erp_execute，operation 为 auth.login，params 为 {}。把返回的本机网页链接交给用户，由用户在网页中填写 ERP 网址、账号和密码；Agent 不查看或填写密码。登录后重试原查询，无需重启 MCP。登录页面过期时再次调用 auth.login。',
   next: { tool: 'erp_execute', arguments: { operation: 'auth.login', params: {} } },
-  fallback: '网页不可用时可在本机运行 new-erp login --browser；也可用客户端 request_secret 私密输入或让用户在终端运行 new-erp login --baseUrl <ERP_URL>。不得在对话、工具参数、命令参数或日志中传递密码和 token。',
 };
 
 function response(output, isError = false) {
@@ -97,10 +96,12 @@ async function createServer(options = {}) {
   return server;
 }
 
-const definition = { name: 'mcp', description: '启动按需发现和执行 ERP 能力的本地 stdio MCP。', args: [] };
-async function main() {
-  const args = parseArgs(process.argv.slice(2), []);
-  if (args.help) { process.stdout.write(formatHelp(definition)); return; }
+async function main(argv = process.argv.slice(2)) {
+  if (argv.length) {
+    process.stderr.write('new-erp-mcp does not accept command arguments\n');
+    process.exitCode = 2;
+    return;
+  }
   const server = await createServer();
   const { serveStdio } = await import('@modelcontextprotocol/server/stdio');
   const handle = serveStdio(() => server);

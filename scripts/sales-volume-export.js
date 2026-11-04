@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {
@@ -9,9 +8,9 @@ const {
   requestJson,
   redactSensitiveText,
   requiredString,
-  runCli,
 } = require('./shared.js');
 const { normalizeDateTime } = require('./sales-volume-ranking.js');
+const exportRoute = '/statistics/sales-volume/download-list';
 
 const args = [
   { name: 'startDate', type: 'string', default: '', help: '开始日期或时间（必填）' },
@@ -39,15 +38,18 @@ async function tasks(token, timeoutMs = 120_000) {
   return json.data.list;
 }
 
-function matchingTask(rows, query, start, end) {
-  return rows.find((row) => {
-    if (row.start_date !== start || row.end_date !== end) return false;
+function matchingTask(rows, query, start, end, previous = new Set()) {
+  const matches = rows.filter((row) => {
+    if (!row.id || previous.has(String(row.id)) || row.route_url !== exportRoute.slice(1)
+      || row.start_date !== start || row.end_date !== end) return false;
     try {
       const params = JSON.parse(row.add_condition).params;
       return Object.entries(query).every(([key, value]) => String(params[key] ?? '') === String(value))
         && Object.entries(params).every(([key, value]) => key in query || value === null || value === undefined || value === '');
     } catch { return false; }
   });
+  if (matches.length > 1) throw new CommandExecutionError('sales export has multiple matching new tasks');
+  return matches[0];
 }
 
 async function main(options) {
@@ -71,22 +73,21 @@ async function main(options) {
   };
   if (options.auctionSiteType) query.auction_site_type = String(options.auctionSiteType).trim();
   const deadline = Date.now() + 20 * 60 * 1000;
-  let task = matchingTask(await tasks(token), query, start.text, end.text);
-  if (!task) {
-    let submitError;
-    try {
-      await requestJson(urlFor('/statistics/sales-volume/download-list', query), {
-        label: 'new-erp sales export', headers: { token },
-        timeoutMs: Math.max(1, Math.min(120_000, deadline - Date.now())),
-      });
-    } catch (error) { submitError = error; }
-    for (let attempt = 0; attempt < 10 && !task && Date.now() < deadline; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, Math.min(2000, Math.max(0, deadline - Date.now()))));
-      if (Date.now() >= deadline) break;
-      task = matchingTask(await tasks(token, Math.max(1, Math.min(120_000, deadline - Date.now()))), query, start.text, end.text);
-    }
-    if (!task) throw submitError || new CommandExecutionError('sales export task was not found in download center');
+  const previous = new Set((await tasks(token)).map((row) => String(row.id)));
+  let submitError;
+  try {
+    await requestJson(urlFor(exportRoute, query), {
+      label: 'new-erp sales export', headers: { token },
+      timeoutMs: Math.max(1, Math.min(120_000, deadline - Date.now())),
+    });
+  } catch (error) { submitError = error; }
+  let task;
+  for (let attempt = 0; attempt < 10 && Date.now() < deadline; attempt += 1) {
+    task = matchingTask(await tasks(token, Math.max(1, Math.min(120_000, deadline - Date.now()))), query, start.text, end.text, previous);
+    if (task) break;
+    if (attempt < 9) await new Promise((resolve) => setTimeout(resolve, Math.min(2000, Math.max(0, deadline - Date.now()))));
   }
+  if (!task) throw submitError || new CommandExecutionError('sales export task was not found in download center');
   while (String(task.status) !== '3') {
     if (String(task.status) === '4') throw new CommandExecutionError(`sales export task ${task.id} failed: ${redactSensitiveText(task.error_reason || 'unknown reason', [token])}`);
     if (Date.now() >= deadline) throw new CommandExecutionError(`sales export task ${task.id} still pending after 20 minutes`);
@@ -108,7 +109,3 @@ async function main(options) {
 }
 
 module.exports = { main, matchingTask, args };
-
-if (require.main === module) {
-  runCli({ name: 'sales-volume-export', description: '异步导出 SKU、SKU+平台或平台月销量 CSV。', args, func: main });
-}

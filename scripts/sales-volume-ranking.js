@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 const {
   ArgumentError,
   CommandExecutionError,
@@ -11,9 +10,8 @@ const {
   positiveInteger,
   requestJson,
   requiredString,
-  runCli,
 } = require('./shared.js');
-const { checkDuplicateRows } = require('./query.js');
+const { checkDuplicateRows, validatePage } = require('./query.js');
 
 const SORT_FIELDS = new Set(['sales', 'mean', 'sku', 'name']);
 const SORT_ORDERS = new Set(['asc', 'desc']);
@@ -198,6 +196,7 @@ async function fetchSalesPage({
       `new-erp ${commandName} page=${page} returned unexpected response shape`,
     );
   }
+  validatePage(json.data, page, pageSize, `new-erp ${commandName}`);
   if (productTypeCate && expectedCatalogNames?.size > 0) {
     const unexpectedRow = json.data.list.find((row) => {
       const catalogName = String(row?.catalog_name_cn ?? '').trim();
@@ -407,12 +406,3 @@ module.exports = {
   normalizeProductTypeCate,
   resolveToken,
 };
-
-if (require.main === module) {
-  runCli({
-    name: 'sales-volume-ranking',
-    description: '查询 new-erp SKU 销量排行。',
-    args,
-    func: main,
-  });
-}

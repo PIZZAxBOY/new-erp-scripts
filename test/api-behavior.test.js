@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -8,133 +8,6 @@ const { test } = require('node:test');
 
 const root = path.resolve(__dirname, '..');
 const scriptsRoot = path.join(root, 'scripts');
-const scripts = [
-  'market-order-list.js',
-  'catalog-list.js',
-  'category-summary.js',
-  'game-product-batch.js',
-  'game-product-list.js',
-  'product-detail.js',
-  'sales-volume-ranking.js',
-  'sales-volume-export.js',
-  'supply-evidence.js',
-  'stocking-assembly-inbound.js',
-  'packing-order-list.js',
-  'packing-order-pages.js',
-  'packing-detail.js',
-  'plan-delivery-order-list.js',
-  'packing-detail-export.js',
-  'packing-batch-list.js',
-  'packing-batch-detail.js',
-  'outer-package-list.js',
-  'inventory-list.js',
-  'logistics-channel-list.js',
-  'product-declaration-list.js',
-  'erp-options.js',
-  'login.js',
-  'logout.js',
-  'setup.js',
-  'mcp.js',
-
-];
-
-test('package exposes callable functions through ES module imports', async () => {
-  const api = await import('new-erp-mcp');
-  assert.deepEqual(Object.keys(api).sort(), [
-    'marketOrderList',
-    'catalogList', 'categorySummary', 'exportGameProducts', 'exportOuterPackages', 'gameProductBatch', 'gameProductList',
-    'productDetail', 'salesVolumeExport', 'salesVolumeRanking', 'erpClient',
-    'stockingAssemblyInbound', 'supplyEvidence', 'packingOrderList', 'exportPackingDetails',
-    'packingOrderPages', 'packingDetail', 'planDeliveryOrderList',
-    'packingBatchList', 'packingBatchDetail', 'outerPackageList', 'inventoryList', 'logisticsChannelList', 'productDeclarationList', 'erpOptions',
-  ].sort());
-  assert.equal(typeof api.erpClient.loginToken, 'function');
-  assert.equal(typeof api.erpClient.requestJson, 'function');
-  await assert.rejects(api.salesVolumeRanking({ startDate: 'bad', endDate: '2026-01-01' }), /startDate/);
-});
-
-test('packed npm package installs one unified command, API and separate skill metadata', async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-package-test-'));
-  try {
-    const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], {
-      cwd: root, encoding: 'utf8',
-    });
-    assert.equal(packed.status, 0, packed.stderr);
-    const [tarball] = JSON.parse(packed.stdout);
-    assert.ok(tarball.files.every(({ path: filename }) =>
-      ['index.mjs', 'package.json', 'README.md'].includes(filename)
-      || filename.startsWith('scripts/') || filename.startsWith('skills/') || filename.startsWith('docs/')));
-    const installed = spawnSync('npm', ['install', '--prefer-offline', '--prefix', directory,
-      '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', path.join(directory, tarball.filename)], {
-      cwd: directory, encoding: 'utf8',
-    });
-    assert.equal(installed.status, 0, installed.stderr);
-    const imported = spawnSync(process.execPath, ['--input-type=module', '-e',
-      "import * as api from 'new-erp-mcp'; console.log(JSON.stringify(Object.keys(api).sort()))"], {
-      cwd: directory, encoding: 'utf8',
-    });
-    assert.equal(imported.status, 0, imported.stderr);
-    assert.deepEqual(JSON.parse(imported.stdout), Object.keys(await import('new-erp-mcp')).sort());
-    const packageRoot = path.join(directory, 'node_modules', 'new-erp-mcp');
-    const manifest = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
-    assert.deepEqual(Object.keys(manifest.bin), ['new-erp']);
-    assert.equal(manifest.bin['new-erp'], 'scripts/new-erp.js');
-    assert.equal(scripts.length, 26);
-    const cli = path.join(directory, 'node_modules', '.bin', 'new-erp');
-    const topHelp = spawnSync(cli, [], { cwd: directory, encoding: 'utf8' });
-    assert.equal(topHelp.status, 0, topHelp.stderr || topHelp.error);
-    assert.match(topHelp.stdout, /^Usage: new-erp <command> \[options\]/m);
-    const topHelpLines = topHelp.stdout.split('\n');
-    const commandStart = topHelpLines.indexOf('Commands:') + 1;
-    const commandEnd = topHelpLines.indexOf('', commandStart);
-    const listedCommands = topHelpLines.slice(commandStart, commandEnd);
-    assert.deepEqual(listedCommands.map((line) => line.trim().split(/\s+/)[0]),
-      scripts.map(commandForScript));
-    assert.ok(listedCommands.every((line) => line.trim().length > line.trim().split(/\s+/)[0].length));
-    for (const args of [['--help'], ['-h']]) {
-      const result = spawnSync(cli, args, { cwd: directory, encoding: 'utf8' });
-      assert.equal(result.status, 0, result.stderr || result.error);
-      assert.match(result.stdout, /^Usage: new-erp <command> \[options\]/m);
-    }
-    for (const script of scripts) {
-      const command = commandForScript(script);
-      assert.ok(topHelp.stdout.includes(command), command);
-      const help = spawnSync(cli, [command, '--help'], {
-        cwd: directory, encoding: 'utf8',
-      });
-      assert.equal(help.status, 0, `${command}: ${help.stderr || help.error}`);
-      assert.equal(help.stdout.split('\n')[0], `Usage: new-erp ${command} [options]`);
-    }
-    const { Client } = await import('@modelcontextprotocol/client');
-    const { StdioClientTransport } = await import('@modelcontextprotocol/client/stdio');
-    const client = new Client({ name: 'installed-package-test', version: '1.0.0' });
-    const transport = new StdioClientTransport({ command: cli, args: ['mcp'], cwd: directory,
-      env: { ...process.env, NEW_ERP_SESSION_FILE: path.join(directory, 'no-session.json') }, stderr: 'pipe' });
-    try {
-      await client.connect(transport);
-      assert.equal((await client.listTools()).tools.length, 2);
-      const discovered = await client.callTool({ name: 'erp_discover', arguments: {} });
-      assert.equal(JSON.parse(discovered.content[0].text).operations.filter((operation) => !operation.name.includes('.')).length, 24);
-      const result = await client.callTool({ name: 'erp_execute', arguments: { operation: 'product_detail', params: { id: 1 } } });
-      assert.equal(result.isError, true);
-      assert.match(result.content[0].text, /new-erp login/);
-    } finally { await client.close(); }
-    const secret = 'DO-NOT-ECHO-CLI-TOKEN-123';
-    for (const args of [[secret], [`--token=${secret}`], ['--help', secret]]) {
-      const result = spawnSync(cli, args, { cwd: directory, encoding: 'utf8' });
-      assert.notEqual(result.status, 0);
-      assert.doesNotMatch(result.stdout + result.stderr, new RegExp(secret));
-      assert.match(result.stderr, /new-erp --help/);
-    }
-    await fs.access(path.join(packageRoot, 'skills', 'new-erp-scripts', 'SKILL.md'));
-    await fs.access(path.join(packageRoot, 'skills', 'new-erp-scripts', 'agents', 'openai.yaml'));
-    await fs.access(path.join(packageRoot, 'docs', 'api.md'));
-    await assert.rejects(fs.access(path.join(packageRoot, 'skills', 'new-erp-scripts', 'scripts')), { code: 'ENOENT' });
-  } finally {
-    await fs.rm(directory, { recursive: true, force: true });
-  }
-});
-
 test('outer package export submits flow status and downloads the matching task', async () => {
   const { exportOuterPackages } = await import('new-erp-mcp');
   let submitted = false;
@@ -235,16 +108,18 @@ test('stocking inbound counts only linked backup assembly receipts for the exact
   assert.deepEqual(result.records.map((row) => row.inventoryId), [1]);
 });
 
-function runScript(script, args, env) {
+function runApi(script, options, env) {
+  const filename = path.join(scriptsRoot, script);
+  const code = `
+    const { main } = require(${JSON.stringify(filename)});
+    main(${JSON.stringify(options)}).then((value) => process.stdout.write(JSON.stringify(value)))
+      .catch((error) => {
+        process.stderr.write(String(error?.message || error));
+        process.exitCode = error?.exitCode || 1;
+      });
+  `;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [
-      path.join(scriptsRoot, 'new-erp.js'),
-      commandForScript(script),
-      ...args,
-    ], {
-      cwd: root,
-      env,
-    });
+    const child = spawn(process.execPath, ['-e', code], { cwd: root, env });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -252,11 +127,6 @@ function runScript(script, args, env) {
     child.on('error', reject);
     child.on('close', (status) => resolve({ status, stdout, stderr }));
   });
-}
-
-function commandForScript(script) {
-  const command = script.replace(/\.js$/, '');
-  return command === 'erp-options' ? 'options' : command;
 }
 
 test('packing APIs preserve scope and export only the matching native task', async (t) => {
@@ -361,21 +231,6 @@ test('packing APIs preserve scope and export only the matching native task', asy
       await assert.rejects(packingOrderList({ ...options, ...invalid }), /warehouses|Date|project|pageSize/);
       assert.equal(calls.length, 0);
     }
-    reset('complete');
-    const cliOptions = ['--token', 'test-token', '--project', 'YS', '--warehouses', 'DEMO-DEST,OVERSEAS',
-      '--startDate', '2026-09-01', '--endDate', '2026-09-30'];
-    const env = { ...process.env, NEW_ERP_CONFIG: '' };
-    const cliList = await runScript('packing-order-list.js', cliOptions, env);
-    assert.equal(cliList.status, 0, cliList.stderr);
-    assert.equal(JSON.parse(cliList.stdout).totalCount, 1);
-    const cliOutput = path.join(directory, 'cli.xlsx');
-    const cliExport = await runScript('packing-detail-export.js', [...cliOptions, '--output', cliOutput], env);
-    assert.equal(cliExport.status, 0, cliExport.stderr);
-    assert.equal(JSON.parse(cliExport.stdout).taskId, 'new');
-    assert.equal((await fs.readFile(cliOutput)).toString(), 'PKnative-xlsx');
-    const missingOutput = await runScript('packing-detail-export.js', cliOptions, env);
-    assert.notEqual(missingOutput.status, 0);
-    assert.match(missingOutput.stderr, /output/);
   } finally {
     t.mock.restoreAll();
     if (previousUrl === undefined) delete process.env.NEW_ERP_BASE_URL;
@@ -386,38 +241,12 @@ test('packing APIs preserve scope and export only the matching native task', asy
   }
 });
 
-test('each subcommand exposes unified help', () => {
-  for (const script of scripts) {
-    const command = commandForScript(script);
-    const result = spawnSync(process.execPath, [
-      path.join(scriptsRoot, 'new-erp.js'), command, '--help',
-    ], {
-      cwd: root,
-      encoding: 'utf8',
-    });
-
-    assert.equal(result.status, 0, `${script} failed: ${result.stderr}`);
-    assert.equal(result.stdout.split('\n')[0], `Usage: new-erp ${command} [options]`);
-  }
+test('invalid business input fails before contacting the ERP', async () => {
+  await assert.rejects(import('new-erp-mcp').then(({ salesVolumeRanking }) =>
+    salesVolumeRanking({ startDate: 'not-a-date', endDate: '2026-01-01' })), /startDate/);
 });
 
-test('invalid input fails without contacting the ERP', () => {
-  const result = spawnSync(process.execPath, [
-    path.join(scriptsRoot, 'new-erp.js'),
-    'sales-volume-ranking',
-    '--startDate', 'not-a-date',
-    '--endDate', '2026-01-01',
-  ], {
-    cwd: root,
-    encoding: 'utf8',
-  });
-
-  assert.notEqual(result.status, 0);
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /startDate/);
-});
-
-test('a command logs in and queries the ERP with native Node APIs', async (t) => {
+test('the JavaScript API logs in and queries the ERP with native Node APIs', async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-cli-login-test-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   await fs.writeFile(path.join(directory, 'config.json'), '{}');
@@ -458,11 +287,9 @@ test('a command logs in and queries the ERP with native Node APIs', async (t) =>
 
   try {
     const address = server.address();
-    const result = await runScript('game-product-list.js', [
-      '--sku', 'ABC',
-      '--username', 'user',
-      '--password', 'pass',
-    ], {
+    const result = await runApi('game-product-list.js', {
+      sku: 'ABC', username: 'user', password: 'pass',
+    }, {
       ...process.env,
       NEW_ERP_BASE_URL: `http://127.0.0.1:${address.port}`,
       NEW_ERP_TOKEN: '',
@@ -525,12 +352,9 @@ test('sales command expands a parent catalog from the ERP without catalog map co
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 
   try {
-    const result = await runScript('sales-volume-ranking.js', [
-      '--startDate', '2026-01-01',
-      '--endDate', '2026-01-31',
-      '--catalogId', '10',
-      '--token', 'mock-token',
-    ], {
+    const result = await runApi('sales-volume-ranking.js', {
+      startDate: '2026-01-01', endDate: '2026-01-31', catalogId: '10', token: 'mock-token',
+    }, {
       ...process.env,
       NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}`,
     });
@@ -556,10 +380,10 @@ test('sales SKU search removes ERP prefix matches and sends platform options', a
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    const result = await runScript('sales-volume-ranking.js', [
-      '--startDate', '2026-01-01', '--endDate', '2026-01-31', '--sku', 'ABC',
-      '--aggregateBy', 'sku-platform', '--auctionSiteType', 'Amazon', '--token', 'mock-token',
-    ], { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
+    const result = await runApi('sales-volume-ranking.js', {
+      startDate: '2026-01-01', endDate: '2026-01-31', sku: 'ABC',
+      aggregateBy: 'sku-platform', auctionSiteType: 'Amazon', token: 'mock-token',
+    }, { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(calls[0].searchParams.get('aggregate_by'), 'sku-platform');
     assert.equal(calls[0].searchParams.get('auction_site_type'), 'Amazon');
@@ -583,9 +407,9 @@ test('plan evidence reads detail and keeps only exact SKU rows', async () => {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    const result = await runScript('supply-evidence.js', [
-      '--source', 'plan', '--sku', 'ABC', '--startDate', '2026-01-01', '--endDate', '2026-01-31', '--token', 'mock-token',
-    ], { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
+    const result = await runApi('supply-evidence.js', {
+      source: 'plan', sku: 'ABC', startDate: '2026-01-01', endDate: '2026-01-31', token: 'mock-token',
+    }, { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(calls[0].searchParams.get('add_time'), '2026-01-01 00:00:00 & 2026-01-31 23:59:59');
     assert.equal(calls[1].searchParams.get('id'), '7');
@@ -596,41 +420,7 @@ test('plan evidence reads detail and keeps only exact SKU rows', async () => {
   }
 });
 
-test('platform export reuses a finished task and saves its CSV without resubmitting', async () => {
-  const calls = [];
-  const server = http.createServer((request, response) => {
-    const url = new URL(request.url, `http://${request.headers.host}`);
-    calls.push(url.searchParams.get('r'));
-    if (url.searchParams.get('r') === '/settings/download-center/download-file') {
-      response.setHeader('content-disposition', 'attachment; filename="sales.csv"');
-      response.end('platform,sales\nAmazon,3\n');
-      return;
-    }
-    response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({ code: 200, data: { list: [{
-      id: 9, status: 3, start_date: '2026-01-01 00:00:00', end_date: '2026-01-31 23:59:59',
-      add_condition: JSON.stringify({ params: { mode: 'domain', aggregate_by: 'platform',
-        date_dimension: 'monthly', date_range: '2026-01-01 00:00:00 & 2026-01-31 23:59:59', index: 'sales-volume' } }),
-    }] } }));
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'new-erp-export-'));
-  const output = path.join(tempDir, 'sales.csv');
-  try {
-    const result = await runScript('sales-volume-export.js', [
-      '--startDate', '2026-01-01', '--endDate', '2026-01-31', '--aggregateBy', 'platform',
-      '--output', output, '--token', 'mock-token',
-    ], { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(calls, ['/settings/download-center/index', '/settings/download-center/download-file']);
-    assert.equal(await fs.readFile(output, 'utf8'), 'platform,sales\nAmazon,3\n');
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  }
-});
-
-test('an optional config file supplies the ERP base URL and env wins', async () => {
+test('an optional config file supplies the ERP base URL and env wins for the API', async () => {
   const server = http.createServer((request, response) => {
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({
@@ -651,10 +441,7 @@ test('an optional config file supplies the ERP base URL and env wins', async () 
   }));
 
   try {
-    const result = await runScript('product-detail.js', [
-      '--id', '42',
-      '--token', 'mock-token',
-    ], {
+    const result = await runApi('product-detail.js', { id: 42, token: 'mock-token' }, {
       ...process.env,
       NEW_ERP_CONFIG: configPath,
       NEW_ERP_BASE_URL: '',
@@ -665,10 +452,7 @@ test('an optional config file supplies the ERP base URL and env wins', async () 
     assert.equal(JSON.parse(result.stdout)[0].id, 42);
 
     await fs.writeFile(configPath, JSON.stringify({ baseUrl: 'http://127.0.0.1:1' }));
-    const overrideResult = await runScript('product-detail.js', [
-      '--id', '42',
-      '--token', 'mock-token',
-    ], {
+    const overrideResult = await runApi('product-detail.js', { id: 42, token: 'mock-token' }, {
       ...process.env,
       NEW_ERP_CONFIG: configPath,
       NEW_ERP_BASE_URL: `http://127.0.0.1:${address.port}`,

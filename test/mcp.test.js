@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs/promises');
 const http = require('node:http');
 const os = require('node:os');
@@ -28,17 +27,6 @@ async function isolate(t) {
   return directory;
 }
 
-function runCli(args, env = process.env) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(root, 'scripts/new-erp.js'), ...args], { env, cwd: root });
-    let stdout = '', stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.on('error', reject);
-    child.on('close', (status) => resolve({ status, stdout, stderr }));
-  });
-}
-
 function payload(result) { return JSON.parse(result.content.find((item) => item.type === 'text').text); }
 
 function execute(client, operation, params = {}, requestId) {
@@ -56,43 +44,6 @@ async function memoryClient(t, options = {}) {
   t.after(async () => { await client.close(); await server.close(); });
   return client;
 }
-
-test('npm login saves only a private token, CLI reuses it, logout removes it', async (t) => {
-  await isolate(t);
-  const password = 'fake-login-password';
-  const token = 'fake-login-token';
-  const server = http.createServer(async (request, response) => {
-    const url = new URL(request.url, `http://${request.headers.host}`);
-    if (url.searchParams.get('r') === '/user/check-login') {
-      let body = '';
-      for await (const chunk of request) body += chunk;
-      assert.deepEqual(JSON.parse(body), { username: 'account-one', password });
-      response.end(JSON.stringify({ code: 200, data: { token, user_id: 10, expire_time: 4102444800 } }));
-    } else {
-      assert.equal(request.headers.token, token);
-      response.end(JSON.stringify({ code: 200, data: { product_basic_info: { id: 12, sku: 'DEMO-ONE', image_url: 'https://example.invalid/image.jpg' } } }));
-    }
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => { server.closeAllConnections(); server.close(); });
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const result = await runCli(['login', '--baseUrl', baseUrl, '--username', 'account-one'],
-    { ...process.env, NEW_ERP_PASSWORD: password });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).loggedIn, true);
-  assert.ok(!(result.stdout + result.stderr).includes(token));
-  assert.ok(!(result.stdout + result.stderr).includes(password));
-  const saved = await fs.readFile(process.env.NEW_ERP_SESSION_FILE, 'utf8');
-  assert.ok(!saved.includes(password));
-  assert.equal(JSON.parse(saved).baseUrl, baseUrl);
-  assert.equal(readSession().token, token);
-  if (process.platform !== 'win32') assert.equal((await fs.stat(process.env.NEW_ERP_SESSION_FILE)).mode & 0o777, 0o600);
-  const detail = await runCli(['product-detail', '--id', '12']);
-  assert.equal(detail.status, 0, detail.stderr);
-  assert.equal(JSON.parse(detail.stdout)[0].sku, 'DEMO-ONE');
-  assert.equal((await runCli(['logout'])).status, 0);
-  assert.equal(readSession(), null);
-});
 
 test('sessions do not cross ERP hosts, expired sessions fail, and contexts isolate concurrent requests', async (t) => {
   await isolate(t);
@@ -124,7 +75,7 @@ test('sessions do not cross ERP hosts, expired sessions fail, and contexts isola
     ['https://alpha.invalid/index.php', 'alpha', 'https://alpha.invalid/'],
     ['https://beta.invalid/index.php', 'beta', 'https://beta.invalid/'],
   ]);
-  assert.throws(() => withErpContext({ baseUrl: session.baseUrl }, () => getTokenFromArgs({})), /login first/);
+  assert.throws(() => withErpContext({ baseUrl: session.baseUrl }, () => getTokenFromArgs({})), /auth\.login/);
 });
 
 test('MCP lists only ERP tools; no saved login never uses configured shared credentials', async (t) => {
@@ -145,32 +96,21 @@ test('MCP lists only ERP tools; no saved login never uses configured shared cred
   assert.ok(tools.every((tool) => !['username', 'password', 'token'].some((key) => key in tool.inputSchema.properties)));
   const result = await execute(client, 'product_detail', { id: 12 });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /new-erp login/);
+  assert.match(result.content[0].text, /auth\.login/);
   assert.match(result.content[0].text, /ERP 网址/);
-  assert.match(result.content[0].text, /--baseUrl/);
-  assert.match(result.content[0].text, /new-erp login --browser/);
-  assert.match(result.content[0].text, /request_secret/);
+  assert.match(result.content[0].text, /Agent 不查看或填写密码/);
   assert.match(result.content[0].text, /重试/);
   assert.equal(payload(result).error.next.arguments.operation, 'auth.login');
   assert.equal(fetchMock.mock.callCount(), 0);
   const asinResult = await execute(client, 'product_detail', { asin: 'B012345678' });
   assert.equal(asinResult.isError, true);
-  assert.match(asinResult.content[0].text, /new-erp login/);
+  assert.match(asinResult.content[0].text, /auth\.login/);
   assert.equal(fetchMock.mock.callCount(), 0);
   const invalid = await execute(client, 'product_detail', { id: -1 });
   assert.equal(invalid.isError, true);
   const injected = await execute(client, 'product_detail', { id: 12, token: 'injected-credential' });
   assert.equal(injected.isError, true);
   assert.equal(fetchMock.mock.callCount(), 0);
-});
-
-test('first login without an ERP URL explains configuration without asking for secrets in chat', async (t) => {
-  await isolate(t);
-  const result = await runCli(['login']);
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /new-erp login --baseUrl/);
-  assert.match(result.stderr, /NEW_ERP_BASE_URL/);
-  assert.equal(readSession(), null);
 });
 
 test('discovery covers every business capability and helpers without loading login state', async (t) => {
@@ -301,7 +241,7 @@ test('MCP returns one JSON result using the saved user and handles session chang
   denied = true;
   result = await execute(client, 'product_detail', { id: 12 });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /new-erp login/);
+  assert.match(result.content[0].text, /auth\.login/);
   assert.ok(!JSON.stringify(result).includes('second-token'));
   saveSession({ ...session, expireTime: 1 });
   result = await execute(client, 'product_detail', { id: 12 });
@@ -319,7 +259,7 @@ test('real stdio client initializes and calls tools without non-protocol stdout'
   const { StdioClientTransport } = await import('@modelcontextprotocol/client/stdio');
   const client = new Client({ name: 'stdio-test', version: '1.0.0' });
   const transport = new StdioClientTransport({ command: process.execPath,
-    args: [path.join(root, 'scripts/new-erp.js'), 'mcp'], env: { ...process.env }, stderr: 'pipe' });
+    args: [path.join(root, 'scripts/mcp.js')], env: { ...process.env }, stderr: 'pipe' });
   let stderr = '';
   transport.stderr.on('data', (chunk) => { stderr += chunk; });
   try {
@@ -327,29 +267,7 @@ test('real stdio client initializes and calls tools without non-protocol stdout'
     assert.equal((await client.listTools()).tools.length, 2);
     const result = await execute(client, 'inventory_list', { sku: 'SKU', stockCode: 'WH' });
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /new-erp login/);
+    assert.match(result.content[0].text, /auth\.login/);
   } finally { await client.close(); }
   assert.equal(stderr, '');
-});
-
-test('Codex setup uses the installed absolute Node/server paths and dry-run leaves config alone', async (t) => {
-  const directory = await isolate(t);
-  const { main: setup } = require('../scripts/setup.js');
-  const command = await setup({ dryRun: true });
-  assert.equal(command.command, 'codex');
-  assert.deepEqual(command.args, ['mcp', 'add', 'new-erp', '--', process.execPath, path.join(root, 'scripts/mcp.js')]);
-  await assert.rejects(setup({ client: 'other' }), /client/);
-  await assert.rejects(setup({ name: '--bad' }), /name/);
-  if (process.platform === 'win32') return;
-  const fake = path.join(directory, 'codex');
-  const record = path.join(directory, 'arguments.json');
-  await fs.writeFile(fake, `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.ERP_TEST_ARGS, JSON.stringify({args:process.argv.slice(2),token:process.env.NEW_ERP_TOKEN}));`, { mode: 0o700 });
-  const result = spawnSync(process.execPath, [path.join(root, 'scripts/setup.js'), '--client', 'codex'], {
-    env: { ...process.env, NEW_ERP_TOKEN: 'must-not-forward', ERP_TEST_ARGS: record,
-      PATH: `${directory}${path.delimiter}${process.env.PATH}` }, encoding: 'utf8',
-  });
-  assert.equal(result.status, 0, result.stderr);
-  const recorded = JSON.parse(await fs.readFile(record, 'utf8'));
-  assert.deepEqual(recorded.args, command.args);
-  assert.equal(recorded.token, undefined);
 });

@@ -1,16 +1,30 @@
 const { z } = require('zod');
-const { commands } = require('./new-erp.js');
 
 const hiddenArgs = new Set(['username', 'password', 'token', 'output']);
-const registry = new Map();
-for (const [cliName, command] of Object.entries(commands)) {
-  if (!['read', 'export', 'stream', 'local'].includes(command.kind)) {
-    throw new Error(`Command must declare a supported kind: ${cliName}`);
-  }
-  if (command.kind === 'local') continue;
-  const name = cliName === 'options' ? 'erp_options' : cliName.replaceAll('-', '_');
-  registry.set(name, { name, description: command.description, effect: command.kind, script: command.script });
-}
+const registry = new Map([
+  ['market_order_list', { name: 'market_order_list', description: '查询市场订单与订单原始字段', effect: 'read', script: 'market-order-list.js' }],
+  ['catalog_list', { name: 'catalog_list', description: '查找商品分类与分类 ID', effect: 'read', script: 'catalog-list.js' }],
+  ['category_summary', { name: 'category_summary', description: '按分类统计匹配的 SKU 销售记录', effect: 'read', script: 'category-summary.js' }],
+  ['game_product_batch', { name: 'game_product_batch', description: '批量查询多个商品 SKU', effect: 'read', script: 'game-product-batch.js' }],
+  ['game_product_list', { name: 'game_product_list', description: '按 SKU、名称或分类搜索商品', effect: 'read', script: 'game-product-list.js' }],
+  ['product_detail', { name: 'product_detail', description: '按商品 ID 或 ASIN 查询 ERP 商品详情与图片', effect: 'read', script: 'product-detail.js' }],
+  ['sales_volume_ranking', { name: 'sales_volume_ranking', description: '查询日期范围内的 SKU 销量排名', effect: 'read', script: 'sales-volume-ranking.js' }],
+  ['sales_volume_export', { name: 'sales_volume_export', description: '异步导出销量 CSV', effect: 'export', script: 'sales-volume-export.js' }],
+  ['supply_evidence', { name: 'supply_evidence', description: '查询计划、库存及货物流转凭证', effect: 'read', script: 'supply-evidence.js' }],
+  ['stocking_assembly_inbound', { name: 'stocking_assembly_inbound', description: '统计备货拼装的实际入库数量', effect: 'read', script: 'stocking-assembly-inbound.js' }],
+  ['packing_order_list', { name: 'packing_order_list', description: '查询装箱单列表', effect: 'read', script: 'packing-order-list.js' }],
+  ['packing_order_pages', { name: 'packing_order_pages', description: '逐页读取装箱记录并输出 NDJSON', effect: 'stream', script: 'packing-order-list.js', method: 'pages', omitArgs: ['fetchAll'] }],
+  ['packing_detail', { name: 'packing_detail', description: '查询单箱明细', effect: 'read', script: 'packing-detail.js' }],
+  ['plan_delivery_order_list', { name: 'plan_delivery_order_list', description: '查询历史配货明细', effect: 'read', script: 'plan-delivery-order-list.js' }],
+  ['packing_detail_export', { name: 'packing_detail_export', description: '导出装箱明细 XLSX', effect: 'export', script: 'packing-detail-export.js' }],
+  ['packing_batch_list', { name: 'packing_batch_list', description: '查询配货批次', effect: 'read', script: 'packing-batch-list.js' }],
+  ['packing_batch_detail', { name: 'packing_batch_detail', description: '查询配货批次的 SKU 与 BOM 明细', effect: 'read', script: 'packing-batch-detail.js' }],
+  ['outer_package_list', { name: 'outer_package_list', description: '查询外包装规格与版本', effect: 'read', script: 'outer-package-list.js' }],
+  ['inventory_list', { name: 'inventory_list', description: '查询库存批次或仓库汇总', effect: 'read', script: 'inventory-list.js' }],
+  ['logistics_channel_list', { name: 'logistics_channel_list', description: '查询物流渠道与运输方式', effect: 'read', script: 'logistics-channel-list.js' }],
+  ['product_declaration_list', { name: 'product_declaration_list', description: '查询商品申报主数据', effect: 'read', script: 'product-declaration-list.js' }],
+  ['erp_options', { name: 'erp_options', description: '读取实时仓库、状态等枚举', effect: 'read', script: 'erp-options.js' }],
+]);
 
 registry.set('export_game_products', {
   name: 'export_game_products', description: '导出在用或停用商品 XLSX', effect: 'export',
@@ -51,7 +65,7 @@ function entryFor(name) {
 function metadata(entry) {
   if (entry.api) return { schema: entry.schema, args: [] };
   const implementation = require(`./${entry.script}`);
-  const args = implementation.args.filter((arg) => !hiddenArgs.has(arg.name));
+  const args = implementation.args.filter((arg) => !hiddenArgs.has(arg.name) && !entry.omitArgs?.includes(arg.name));
   const shape = {};
   for (const arg of args) {
     let field;
@@ -116,7 +130,7 @@ function getOperation(name) {
         options.output = hooks.outputPath;
         if (entry.name === 'packing_detail_export') options.onProgress = hooks.onProgress;
       }
-      return implementation[entry.effect === 'stream' ? 'pages' : 'main'](options);
+      return implementation[entry.method || (entry.effect === 'stream' ? 'pages' : 'main')](options);
     },
   };
 }

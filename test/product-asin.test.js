@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
 const http = require('node:http');
 const { test } = require('node:test');
 const { main: productDetail } = require('../scripts/product-detail.js');
@@ -162,7 +161,7 @@ test('missing mappings, denied permissions and wrong product details never fall 
   assert.ok(calls.length > 0);
 });
 
-test('ASIN CLI uses the ERP search flow and prints product information', async (t) => {
+test('ASIN API uses the ERP search flow and returns product information', async (t) => {
   await config(t);
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -176,12 +175,17 @@ test('ASIN CLI uses the ERP search flow and prints product information', async (
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
-  const child = spawn(process.execPath, [path.join(__dirname, '../scripts/new-erp.js'), 'product-detail', '--asin', asin],
-    { env: { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}`, NEW_ERP_TOKEN: 'cli-own-token' } });
-  let stdout = '', stderr = '';
-  child.stdout.on('data', (chunk) => { stdout += chunk; }); child.stderr.on('data', (chunk) => { stderr += chunk; });
-  const status = await new Promise((resolve) => child.on('close', resolve));
-  assert.equal(status, 0, stderr);
-  assert.equal(JSON.parse(stdout)[0].asin, asin);
-  assert.equal(JSON.parse(stdout)[0].imageUrl, '/images/example.jpg');
+  const previousUrl = process.env.NEW_ERP_BASE_URL;
+  const previousToken = process.env.NEW_ERP_TOKEN;
+  process.env.NEW_ERP_BASE_URL = `http://127.0.0.1:${server.address().port}`;
+  process.env.NEW_ERP_TOKEN = '';
+  try {
+    const { productDetail } = await import('../index.mjs');
+    const result = await productDetail({ asin, token: 'cli-own-token' });
+    assert.equal(result[0].asin, asin);
+    assert.equal(result[0].imageUrl, '/images/example.jpg');
+  } finally {
+    if (previousUrl === undefined) delete process.env.NEW_ERP_BASE_URL; else process.env.NEW_ERP_BASE_URL = previousUrl;
+    if (previousToken === undefined) delete process.env.NEW_ERP_TOKEN; else process.env.NEW_ERP_TOKEN = previousToken;
+  }
 });

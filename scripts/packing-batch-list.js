@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-const { CommandExecutionError, requiredString, runCli } = require('./shared.js');
+const { CommandExecutionError, requiredString } = require('./shared.js');
 const { listArgs, enumValue, selectionValue, queryList } = require('./query.js');
 
 const args = [
@@ -28,4 +27,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-if (require.main === module) runCli({ name: 'packing-batch-list', description: '查询配货批次，默认已配货待装箱；不代表已核验上游调拨签收。', args, func: main });

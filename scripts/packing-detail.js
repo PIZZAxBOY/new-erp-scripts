@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-const { ArgumentError, CommandExecutionError, runCli } = require('./shared.js');
+const { ArgumentError, CommandExecutionError } = require('./shared.js');
 const { authArgs, selectionValue, queryData } = require('./query.js');
 
 const args = [
@@ -29,4 +28,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-if (require.main === module) runCli({ name: 'packing-detail', description: '只读原箱SKU、数量和箱重尺寸；核对箱号及发货仓，保留原值。', args, func: main });

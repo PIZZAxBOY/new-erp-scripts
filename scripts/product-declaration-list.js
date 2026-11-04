@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-const { requiredString, runCli } = require('./shared.js');
+const { requiredString } = require('./shared.js');
 const { listArgs, queryList } = require('./query.js');
 
 const args = [
@@ -16,4 +15,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-if (require.main === module) runCli({ name: 'product-declaration-list', description: '查询SKU/国家申报主数据，保留HS编码、材质、用途、价格币种和空值。', args, func: main });

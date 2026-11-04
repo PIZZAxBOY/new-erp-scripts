@@ -2,18 +2,44 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { test } = require('node:test');
-const { commands } = require('../scripts/new-erp.js');
 const { listOperations, describeOperation, getOperation } = require('../scripts/mcp-catalog.js');
 
 const hidden = new Set(['username', 'password', 'token', 'output']);
-const business = Object.entries(commands).filter(([, command]) => command.kind !== 'local');
-const operationName = (name) => name === 'options' ? 'erp_options' : name.replaceAll('-', '_');
+const business = [
+  ['market_order_list', '查询市场订单与订单原始字段', 'read', 'market-order-list.js'],
+  ['catalog_list', '查找商品分类与分类 ID', 'read', 'catalog-list.js'],
+  ['category_summary', '按分类统计匹配的 SKU 销售记录', 'read', 'category-summary.js'],
+  ['game_product_batch', '批量查询多个商品 SKU', 'read', 'game-product-batch.js'],
+  ['game_product_list', '按 SKU、名称或分类搜索商品', 'read', 'game-product-list.js'],
+  ['product_detail', '按商品 ID 或 ASIN 查询 ERP 商品详情与图片', 'read', 'product-detail.js'],
+  ['sales_volume_ranking', '查询日期范围内的 SKU 销量排名', 'read', 'sales-volume-ranking.js'],
+  ['sales_volume_export', '异步导出销量 CSV', 'export', 'sales-volume-export.js'],
+  ['supply_evidence', '查询计划、库存及货物流转凭证', 'read', 'supply-evidence.js'],
+  ['stocking_assembly_inbound', '统计备货拼装的实际入库数量', 'read', 'stocking-assembly-inbound.js'],
+  ['packing_order_list', '查询装箱单列表', 'read', 'packing-order-list.js'],
+  ['packing_order_pages', '逐页读取装箱记录并输出 NDJSON', 'stream', 'packing-order-list.js', 'pages'],
+  ['packing_detail', '查询单箱明细', 'read', 'packing-detail.js'],
+  ['plan_delivery_order_list', '查询历史配货明细', 'read', 'plan-delivery-order-list.js'],
+  ['packing_detail_export', '导出装箱明细 XLSX', 'export', 'packing-detail-export.js'],
+  ['packing_batch_list', '查询配货批次', 'read', 'packing-batch-list.js'],
+  ['packing_batch_detail', '查询配货批次的 SKU 与 BOM 明细', 'read', 'packing-batch-detail.js'],
+  ['outer_package_list', '查询外包装规格与版本', 'read', 'outer-package-list.js'],
+  ['inventory_list', '查询库存批次或仓库汇总', 'read', 'inventory-list.js'],
+  ['logistics_channel_list', '查询物流渠道与运输方式', 'read', 'logistics-channel-list.js'],
+  ['product_declaration_list', '查询商品申报主数据', 'read', 'product-declaration-list.js'],
+  ['erp_options', '读取实时仓库、状态等枚举', 'read', 'erp-options.js'],
+];
+const apiOperations = [
+  ['export_game_products', '导出在用或停用商品 XLSX', 'export'],
+  ['export_outer_packages', '导出外包装规格 XLSX', 'export'],
+];
 
-test('the catalog exactly covers classified business CLI commands and public API capabilities', async () => {
-  for (const command of Object.values(commands)) assert.ok(['read', 'export', 'stream', 'local'].includes(command.kind));
-  assert.equal(business.length, 22);
-  const expected = [...business.map(([name]) => operationName(name)), 'export_game_products', 'export_outer_packages'].sort();
-  assert.deepEqual(listOperations().map(({ name }) => name).sort(), expected);
+test('the independent MCP registry preserves all business metadata and public API parity', async () => {
+  const metadata = listOperations().map(({ name, description, effect }) => [name, description, effect])
+    .sort(([a], [b]) => a.localeCompare(b));
+  assert.deepEqual(metadata, [...business.map(([name, description, effect]) => [name, description, effect]), ...apiOperations]
+    .sort(([a], [b]) => a.localeCompare(b)));
+  const expected = [...business.map(([name]) => name), ...apiOperations.map(([name]) => name)].sort();
   const api = await import('../index.mjs');
   const callable = Object.entries(api).filter(([name]) => name !== 'erpClient').map(([name]) => name).sort();
   const publicNames = expected.map((name) => ({ erp_options: 'erpOptions', packing_detail_export: 'exportPackingDetails' })[name]
@@ -31,16 +57,17 @@ test('the catalog exactly covers classified business CLI commands and public API
   }
 });
 
-test('all CLI schemas preserve every authoritative argument primitive, default and omission', () => {
-  for (const [name, command] of business) {
-    const operation = getOperation(operationName(name));
-    const args = require(path.join('../scripts', command.script)).args.filter((arg) => !hidden.has(arg.name));
+test('all MCP schemas preserve every business argument primitive, default and omission', () => {
+  for (const [name, , effect, script, method] of business) {
+    const operation = getOperation(name);
+    const args = require(path.join('../scripts', script)).args.filter((arg) => !hidden.has(arg.name)
+      && !(name === 'packing_order_pages' && arg.name === 'fetchAll'));
     const expected = Object.fromEntries(args.filter((arg) => arg.default !== undefined).map((arg) => [arg.name, arg.default]));
     assert.deepEqual(operation.schema.parse({}), expected, name);
     assert.deepEqual(Object.keys(operation.schema.shape).sort(), args.map((arg) => arg.name).sort(), name);
     const described = describeOperation(operation.name);
     assert.equal(described.execution, 'job');
-    assert.equal(described.effect, command.kind);
+    assert.equal(described.effect, effect);
     assert.equal(described.inputSchema.additionalProperties, false);
     for (const arg of args) {
       const value = { string: 'valid-alias', int: 7, bool: true }[arg.type];
@@ -91,7 +118,7 @@ test('startup and listing load no business code and perform no config/session/ne
     const Module = require('node:module');
     const original = Module._load;
     Module._load = function (request, parent, ...rest) {
-      if (parent?.filename.endsWith('/mcp-catalog.js') && request.startsWith('./') && request !== './new-erp.js') throw Error('business loaded at startup');
+      if (parent?.filename.endsWith('/mcp-catalog.js') && request.startsWith('./')) throw Error('business loaded at startup');
       return original.call(this, request, parent, ...rest);
     };
     const fs = require('node:fs');
@@ -142,26 +169,26 @@ test('describing one operation loads only selected metadata and never business e
   assert.equal(result.stdout + result.stderr, '');
 });
 
-test('every CLI adapter invokes its existing callable and only exports receive private hooks', async (t) => {
+test('every MCP adapter invokes its existing callable and only exports receive private hooks', async (t) => {
   const onProgress = () => {};
   const hooks = { outputPath: '/private/job/output', onProgress };
-  for (const [name, command] of business) {
-    const operation = getOperation(operationName(name));
-    const module = require(path.join('../scripts', command.script));
+  for (const [name, , effect, script, method] of business) {
+    const operation = getOperation(name);
+    const module = require(path.join('../scripts', script));
     const expected = operation.schema.parse({});
-    if (command.kind === 'export') {
+    if (effect === 'export') {
       assert.throws(() => operation.invoke({}), /outputPath/);
       expected.output = hooks.outputPath;
-      if (name === 'packing-detail-export') expected.onProgress = onProgress;
+      if (name === 'packing_detail_export') expected.onProgress = onProgress;
     }
-    const result = command.kind === 'stream' ? (async function* () { yield { list: [1] }; })() : { original: name };
-    const mock = t.mock.method(module, command.kind === 'stream' ? 'pages' : 'main', (options) => {
+    const result = effect === 'stream' ? (async function* () { yield { list: [1] }; })() : { original: name };
+    const mock = t.mock.method(module, method || (effect === 'stream' ? 'pages' : 'main'), (options) => {
       assert.deepEqual(options, expected, name);
       return result;
     });
     assert.equal(operation.invoke({}, hooks), result, name);
     assert.equal(mock.mock.callCount(), 1);
-    if (command.kind === 'stream') {
+    if (effect === 'stream') {
       const pages = [];
       for await (const page of result) pages.push(page);
       assert.deepEqual(pages, [{ list: [1] }]);

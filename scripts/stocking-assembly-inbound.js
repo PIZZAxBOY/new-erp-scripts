@@ -1,11 +1,9 @@
-#!/usr/bin/env node
 const {
   ArgumentError,
   CommandExecutionError,
   asNumberOrNull,
   resolveToken,
   requiredString,
-  runCli,
 } = require('./shared.js');
 const { queryList, checkDuplicateRows } = require('./query.js');
 const { normalizeDateTime } = require('./sales-volume-ranking.js');
@@ -56,7 +54,3 @@ async function main(options) {
 }
 
 module.exports = { main, summarize, args };
-
-if (require.main === module) {
-  runCli({ name: 'stocking-assembly-inbound', description: '按 SKU 和入库日期统计备货拼装的实际入库数量。', args, func: main });
-}
