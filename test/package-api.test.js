@@ -39,6 +39,13 @@ test('packed package exposes only the MCP launcher and serves two tools with 24 
     });
     assert.equal(installed.status, 0, installed.stderr);
     const packageRoot = path.join(directory, 'node_modules', 'new-erp-mcp');
+    const imported = spawnSync(process.execPath, ['--input-type=module', '-e',
+      "import * as api from 'new-erp-mcp'; console.log(JSON.stringify(Object.keys(api).sort()))"], {
+      cwd: directory, encoding: 'utf8',
+    });
+    assert.equal(imported.status, 0, imported.stderr);
+    const checkoutExports = Object.keys(await import('new-erp-mcp')).sort();
+    assert.deepEqual(JSON.parse(imported.stdout), checkoutExports);
     const manifest = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
     assert.deepEqual(manifest.bin, { 'new-erp-mcp': 'scripts/mcp.js' });
     assert.equal((await fs.readdir(path.join(directory, 'node_modules', '.bin'))).includes('new-erp'), false);

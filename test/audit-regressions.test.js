@@ -326,7 +326,7 @@ test('all export downloads refuse cross-origin redirects', async (t) => {
 test('all export polls abort within the remaining deadline instead of waiting a full request timeout', { timeout: 3000 }, async (t) => {
   const api = await import('../index.mjs');
   setEnv(t, { NEW_ERP_BASE_URL: 'https://audit.invalid' });
-  let clock = 0, route, calls;
+  let clock = 0, route, calls, aborted;
   t.mock.method(Date, 'now', () => clock);
   const originalTimeout = global.setTimeout;
   t.mock.method(global, 'setTimeout', (callback, delay, ...args) => {
@@ -351,10 +351,14 @@ test('all export polls abort within the remaining deadline instead of waiting a 
       clock = 20 * 60_000 - 25;
       return json({ list: [{ id: 'ours', status: '2', route_url: route.slice(1),
         start_date: start, end_date: end, field_selects: '{"basic":["sku","name_cn","price"]}',
-        add_condition: JSON.stringify(sales ? { params } : route.includes('packing-order') ? packing : { flow_status: '2' }) }] });
+        add_condition: JSON.stringify(route === '/statistics/sales-volume/download-list'
+          ? { params } : route.includes('packing-order') ? packing : { flow_status: '2' }) }] });
     }
     return new Promise((resolve, reject) => {
-      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+      options.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(options.signal.reason);
+      }, { once: true });
     });
   });
   for (const [name, exportRoute, extra] of [
@@ -365,8 +369,9 @@ test('all export polls abort within the remaining deadline instead of waiting a 
     ['salesVolumeExport', '/statistics/sales-volume/download-list',
       { startDate: '2026-01-01', endDate: '2026-01-31', output: path.join(os.tmpdir(), `erp-deadline-${process.pid}.csv`) }],
   ]) {
-    route = exportRoute; calls = 0; clock = 0;
-    await assert.rejects(api[name]({ token: 'fake-token', ...extra }), /failed/);
-    assert.equal(calls, 2);
+    route = exportRoute; calls = 0; clock = 0; aborted = false;
+    await assert.rejects(api[name]({ token: 'fake-token', ...extra }), /timed out|timeout|aborted/i);
+    assert.equal(calls, 3);
+    assert.equal(aborted, true);
   }
 });
