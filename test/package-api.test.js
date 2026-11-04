@@ -11,7 +11,7 @@ test('package retains the stable JavaScript API exports', async () => {
   const api = await import('new-erp-mcp');
   assert.deepEqual(Object.keys(api).sort(), [
     'marketOrderList', 'catalogList', 'categorySummary', 'exportGameProducts', 'exportOuterPackages',
-    'gameProductBatch', 'gameProductList', 'productDetail', 'salesVolumeExport', 'salesVolumeRanking',
+    'gameProductBatch', 'gameProductList', 'productDetail', 'productImages', 'salesVolumeExport', 'salesVolumeRanking',
     'erpClient', 'stockingAssemblyInbound', 'supplyEvidence', 'packingOrderList', 'exportPackingDetails',
     'packingOrderPages', 'packingDetail', 'planDeliveryOrderList', 'packingBatchList', 'packingBatchDetail',
     'outerPackageList', 'inventoryList', 'logisticsChannelList', 'productDeclarationList', 'erpOptions',
@@ -20,7 +20,7 @@ test('package retains the stable JavaScript API exports', async () => {
   assert.equal(typeof api.erpClient.requestJson, 'function');
 });
 
-test('packed package exposes only the MCP launcher and serves two tools with 24 operations', async () => {
+test('packed package exposes only the MCP launcher and serves two tools with 25 operations', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-mcp-package-'));
   try {
     const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], {
@@ -67,7 +67,7 @@ test('packed package exposes only the MCP launcher and serves two tools with 24 
       assert.deepEqual((await client.listTools()).tools.map(({ name }) => name), ['erp_discover', 'erp_execute']);
       const discovery = await client.callTool({ name: 'erp_discover', arguments: {} });
       const operations = JSON.parse(discovery.content[0].text).operations;
-      assert.equal(operations.filter(({ name }) => !name.includes('.')).length, 24);
+      assert.equal(operations.filter(({ name }) => !name.includes('.')).length, 25);
       assert.equal(operations.filter(({ name }) => name.includes('.')).length, 7);
       const missing = await client.callTool({ name: 'erp_execute',
         arguments: { operation: 'product_detail', params: { id: 1 } } });

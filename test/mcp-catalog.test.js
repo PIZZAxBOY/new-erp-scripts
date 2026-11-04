@@ -12,6 +12,7 @@ const business = [
   ['game_product_batch', '批量查询多个商品 SKU', 'read', 'game-product-batch.js'],
   ['game_product_list', '按 SKU、名称或分类搜索商品', 'read', 'game-product-list.js'],
   ['product_detail', '按商品 ID 或 ASIN 查询 ERP 商品详情与图片', 'read', 'product-detail.js'],
+  ['product_images', '按精确 SKU 查询 ERP 完整图集：橱窗图、小图、包装图、宣传图、样品图', 'read', 'product-images.js'],
   ['sales_volume_ranking', '查询日期范围内的 SKU 销量排名', 'read', 'sales-volume-ranking.js'],
   ['sales_volume_export', '异步导出销量 CSV', 'export', 'sales-volume-export.js'],
   ['supply_evidence', '查询计划、库存及货物流转凭证', 'read', 'supply-evidence.js'],
@@ -131,7 +132,7 @@ test('startup and listing load no business code and perform no config/session/ne
     global.fetch = () => { throw Error('unexpected network'); };
     require('node:child_process').spawnSync = () => { throw Error('unexpected process'); };
     const catalog = require('./scripts/mcp-catalog.js');
-    assert.equal(catalog.listOperations().length, 24);
+    assert.equal(catalog.listOperations().length, 25);
     assert.equal(catalog.listOperations('inventory').length, 1);
     assert.equal(require.cache[require.resolve('./scripts/shared.js')], undefined);
   `;
