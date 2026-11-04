@@ -142,35 +142,56 @@ test('discovery covers every business capability and helpers without loading log
   assert.equal(fetchMock.mock.callCount(), 0);
 });
 
-test('MCP discovers a cheap sales Top 10 example and honors material defaults and overrides', async (t) => {
+test('MCP sales ranking exports CSV, honors material defaults and deduplicates requestId', async (t) => {
   await isolate(t);
   const queries = [];
+  const tasks = [];
   t.mock.method(global, 'fetch', async (input) => {
     const query = new URL(input).searchParams;
-    assert.equal(query.get('r'), '/statistics/sales-volume/list');
+    const route = query.get('r');
+    if (route === '/settings/download-center/index') {
+      return new Response(JSON.stringify({ code: 200, data: { list: tasks } }));
+    }
+    if (route === '/settings/download-center/download-file') {
+      return new Response('SKU,小计\n' + Array.from({ length: 12 }, (_, i) => `SKU-${i},${i + 1}`).join('\n'),
+        { headers: { 'content-disposition': 'attachment; filename=sales.csv' } });
+    }
+    assert.equal(route, '/statistics/sales-volume/download-list');
     assert.equal(query.get('auction_site'), 'JY');
-    assert.equal(query.get('page'), '1');
-    assert.equal(query.get('pageSize'), '10');
+    assert.equal(query.has('page'), false);
+    assert.equal(query.has('pageSize'), false);
     queries.push(query);
-    return new Response(JSON.stringify({ code: 200, data: { page: 1, pageSize: 10, totalCount: 6276,
-      list: Array.from({ length: 10 }, (_, i) => ({ sku: `SKU-${i}`, sales_sum: 100 - i })) } }));
+    const params = Object.fromEntries(query);
+    delete params.r;
+    tasks.push({ id: String(queries.length), status: '3', route_url: route.slice(1),
+      start_date: '2026-10-01 00:00:00', end_date: '2026-10-31 23:59:59', add_condition: JSON.stringify({ params }) });
+    return new Response(JSON.stringify({ code: 200, data: {} }));
   });
   const client = await memoryClient(t);
   const found = payload(await client.callTool({ name: 'erp_discover', arguments: { query: '销售' } }));
   assert.equal(found.operations[0].name, 'sales_volume_ranking');
   const description = payload(await client.callTool({ name: 'erp_discover', arguments: { operation: found.operations[0].name } }));
   assert.equal(description.inputSchema.properties.productTypeCate.default, '5');
+  assert.equal(description.inputSchema.properties.source.default, 'export');
   assert.equal(queries.length, 0);
   const { productTypeCate, ...params } = description.examples[0].params;
   assert.equal(productTypeCate, '5');
   saveSession({ baseUrl: 'https://own-erp.invalid', username: 'own-user', token: 'own-token', expireTime: 4102444800 });
+  assert.equal(payload(await execute(client, description.name, params)).error.code, 'REQUEST_ID_REQUIRED');
   for (const [overrides, expectedType] of [[{}, '5'], [{ productTypeCate: '6' }, '6'], [{ productTypeCate: '' }, null]]) {
     const before = queries.length;
-    const result = payload(await execute(client, description.name, { ...params, ...overrides }));
+    const requestId = `sales-${expectedType}`;
+    const result = payload(await execute(client, description.name, { ...params, ...overrides }, requestId));
     assert.equal(result.state, 'succeeded');
     assert.equal(result.result.data.list.length, 10);
+    assert.equal(result.result.data.list[0].sales, 12);
+    assert.equal(result.result.data.list[0].totalCount, 12);
+    assert.equal(result.progress.stage, 'parsing');
     assert.equal(queries.length, before + 1);
     assert.equal(queries.at(-1).get('product_type_cate'), expectedType);
+    const retry = payload(await execute(client, description.name, { ...params, ...overrides }, requestId));
+    assert.equal(retry.jobId, result.jobId);
+    assert.equal(queries.length, before + 1);
   }
 });
 

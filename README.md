@@ -62,7 +62,7 @@ codex mcp add new-erp -- new-erp-mcp
 
 返回六组图片的完整 URL、分类和主图标记；任一组失败则整体报错。仅查询链接，不下载、上传或删除图片。详见 [图集 API](docs/api.md#按-sku-查询完整图集)。
 
-查销量、热销或前 N 名时直接发现 `sales_volume_ranking`（支持“销售”“销量”“排名”“热销”等关键词），无需先运行 `category_summary`。销量排名默认顶级物料；显式 `productTypeCate: "6"` 查二级物料，`""` 查全部类型。Top 10 用 `page: 1, pageSize: 10, fetchAll: false` 并指定日期范围；分类工具只计数记录行数且抓取全部分页，不是销量排行。详见 [销量工具选择与查询成本](docs/mcp.md#销量工具选择与查询成本)。
+查销量、热销或前 N 名时直接发现 `sales_volume_ranking`（支持“销售”“销量”“排名”“热销”等关键词），无需先运行 `category_summary`。销量排名默认顶级物料；显式 `productTypeCate: "6"` 查二级物料，`""` 查全部类型。默认异步导出完整 CSV 后解析排序，MCP 必须携带稳定 `requestId` 并轮询同一任务；Top 10 用 `page: 1, pageSize: 10, fetchAll: false` 控制最终返回条数，不减少导出量。可显式 `source: "list"` 使用旧列表接口。分类工具只计数记录行数且抓取全部分页，不是销量排行。详见 [销量工具选择与查询成本](docs/mcp.md#销量工具选择与查询成本)。
 
 首次使用时通过 `erp_execute` 调用 `auth.login`。MCP 返回本机临时网页地址，由用户亲自输入 ERP 地址、账号和密码；Agent 不查看、不填写或传递密码。服务只保存私有本机会话中的 token，不保存密码。若页面过期，再次调用 `auth.login`。使用 `auth.logout` 删除本机会话；不会撤销 ERP 上游 token。
 

@@ -353,7 +353,7 @@ test('sales command expands a parent catalog from the ERP without catalog map co
 
   try {
     const result = await runApi('sales-volume-ranking.js', {
-      startDate: '2026-01-01', endDate: '2026-01-31', catalogId: '10', token: 'mock-token',
+      source: 'list', startDate: '2026-01-01', endDate: '2026-01-31', catalogId: '10', token: 'mock-token',
     }, {
       ...process.env,
       NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}`,
@@ -381,7 +381,7 @@ test('sales SKU search removes ERP prefix matches and sends platform options', a
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const result = await runApi('sales-volume-ranking.js', {
-      startDate: '2026-01-01', endDate: '2026-01-31', sku: 'ABC',
+      source: 'list', startDate: '2026-01-01', endDate: '2026-01-31', sku: 'ABC',
       aggregateBy: 'sku-platform', auctionSiteType: 'Amazon', token: 'mock-token',
     }, { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` });
     assert.equal(result.status, 0, result.stderr);

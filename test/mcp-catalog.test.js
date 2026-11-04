@@ -13,7 +13,7 @@ const business = [
   ['game_product_list', '按 SKU、名称或分类搜索商品', 'read', 'game-product-list.js'],
   ['product_detail', '按商品 ID 或 ASIN 查询 ERP 商品详情与图片', 'read', 'product-detail.js'],
   ['product_images', '按精确 SKU 查询 ERP 完整图集：橱窗图、小图、包装图、宣传图、样品图', 'read', 'product-images.js'],
-  ['sales_volume_ranking', '查询 SKU 销量/销售排名、热销 Top N；默认顶级物料，前100名内只需单页，无需分类汇总', 'read', 'sales-volume-ranking.js'],
+  ['sales_volume_ranking', '查询 SKU 销量/销售排名、热销 Top N；默认顶级物料，异步导出 CSV 后排名，需 requestId', 'export', 'sales-volume-ranking.js'],
   ['sales_volume_export', '异步导出销量 CSV；需要文件时使用，不用于快速 Top N 查询', 'export', 'sales-volume-export.js'],
   ['supply_evidence', '查询计划、库存及货物流转凭证', 'read', 'supply-evidence.js'],
   ['stocking_assembly_inbound', '统计备货拼装的实际入库数量', 'read', 'stocking-assembly-inbound.js'],
@@ -74,7 +74,9 @@ test('sales discovery prioritizes ranking intent and explains exhaustive categor
   assert.equal(category.inputSchema.properties.productTypeCate.default, '');
   const ranking = describeOperation('sales_volume_ranking');
   assert.equal(ranking.inputSchema.properties.productTypeCate.default, '5');
-  assert.match(ranking.requirements.join('\n'), /指定 sku 会读取全部匹配页/);
+  assert.match(ranking.requirements.join('\n'), /指定 sku 时精确过滤/);
+  assert.equal(ranking.inputSchema.properties.source.default, 'export');
+  assert.match(ranking.requirements.join('\n'), /稳定 requestId/);
   const example = ranking.examples[0];
   assert.equal(example.operation, ranking.name);
   const params = getOperation(example.operation).schema.parse(example.params);
@@ -207,7 +209,7 @@ test('every MCP adapter invokes its existing callable and only exports receive p
     if (effect === 'export') {
       assert.throws(() => operation.invoke({}), /outputPath/);
       expected.output = hooks.outputPath;
-      if (name === 'packing_detail_export') expected.onProgress = onProgress;
+      if (['packing_detail_export', 'sales_volume_ranking'].includes(name)) expected.onProgress = onProgress;
     }
     const result = effect === 'stream' ? (async function* () { yield { list: [1] }; })() : { original: name };
     const mock = t.mock.method(module, method || (effect === 'stream' ? 'pages' : 'main'), (options) => {

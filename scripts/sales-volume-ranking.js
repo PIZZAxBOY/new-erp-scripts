@@ -56,7 +56,7 @@ function normalizeProductTypeCate(value) {
   if (!text) return '';
   const normalized = PRODUCT_TYPE_CATE_MAP.get(text);
   if (!normalized) {
-    throw new ArgumentError('productTypeCate must be 5/顶级物料 or 6/二级物料; omit it to query all product types');
+    throw new ArgumentError('productTypeCate must be 5/顶级物料 or 6/二级物料; pass an empty string to query all product types');
   }
   return normalized;
 }
@@ -213,6 +213,7 @@ async function fetchSalesPage({
 }
 
 const args = [
+  { name: 'source', type: 'string', choices: ['export', 'list'], default: 'export', help: '默认 export：异步导出完整 CSV 后排序分页，避免长时间列表统计超时；list 显式使用旧列表接口' },
   { name: 'startDate', type: 'string', default: '', help: '开始时间，YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss（必填）' },
   { name: 'endDate', type: 'string', default: '', help: '结束时间，YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss（必填）' },
   { name: 'auctionSite', type: 'string', default: '', help: '品牌：EXR/eXtremeRate → JY；PV/PlayVital → YS；HEX/HexGaming → HX；OG/OstroGear → OG；留空查询全部品牌' },
@@ -224,10 +225,10 @@ const args = [
   { name: 'dateDimension', type: 'string', choices: ['monthly', 'yearly'], default: 'monthly', help: '统计维度' },
   { name: 'sort', type: 'string', choices: ['sales', 'mean', 'sku', 'name'], default: 'sales', help: '排序字段' },
   { name: 'order', type: 'string', choices: ['asc', 'desc'], default: 'desc', help: '排序方向' },
-  { name: 'page', type: 'int', default: 1, help: '页码；默认只请求这一页' },
+  { name: 'page', type: 'int', default: 1, help: '返回页码；export 下载完整 CSV 后本地分页，list 请求此页' },
   { name: 'pageSize', type: 'int', default: 20, help: '每页返回数量，1-100；Top N 用 page=1、pageSize=N、fetchAll=false，不传 sku' },
-  { name: 'fetchAll', type: 'bool', default: false, help: '默认只读一页；true 抓取全部页并全局排序，成本高；指定 sku 时自动读取全部匹配页后精确过滤' },
-  { name: 'maxPages', type: 'int', default: 100, help: '抓取全部页时的最大页数，1-1000' },
+  { name: 'fetchAll', type: 'bool', default: false, help: 'true 返回全部排名；export 始终下载完整 CSV，false 仅截取结果页；list 全量时遍历分页；指定 sku 时精确过滤并返回全部匹配结果' },
+  { name: 'maxPages', type: 'int', default: 100, help: '仅 list 模式抓取全部页时的最大页数，1-1000' },
   { name: 'username', type: 'string', default: '', help: 'ERP 账号；也可用 NEW_ERP_USERNAME' },
   { name: 'password', type: 'string', default: '', help: 'ERP 密码；也可用 NEW_ERP_PASSWORD' },
   { name: 'token', type: 'string', default: '', help: '已有 token；传入后跳过登录' },
@@ -235,6 +236,8 @@ const args = [
 ];
 
 async function main(argsValue) {
+  const source = String(argsValue.source ?? 'export').trim();
+  if (!['export', 'list'].includes(source)) throw new ArgumentError('source must be export or list');
   const start = normalizeDateTime(argsValue.startDate, 'startDate', false);
   const end = normalizeDateTime(argsValue.endDate, 'endDate', true);
   if (end.timestamp < start.timestamp) {
@@ -265,7 +268,7 @@ async function main(argsValue) {
   const pageSize = positiveInteger(argsValue.pageSize, 20, 'pageSize', 100);
   const fetchAll = Boolean(argsValue.fetchAll || sku);
   const maxPages = positiveInteger(argsValue.maxPages, 100, 'maxPages', 1000);
-  if (!fetchAll && (sort !== 'sales' || order !== 'desc')) {
+  if (source === 'list' && !fetchAll && (sort !== 'sales' || order !== 'desc')) {
     throw new ArgumentError(
       'single-page mode preserves the ERP native sales desc order; use --fetchAll true for other sort/order values',
     );
@@ -277,6 +280,37 @@ async function main(argsValue) {
   const catalogRows = argsValue.catalogId ? await fetchCatalogRows(token) : [];
   const catalogId = expandCatalogIds(argsValue.catalogId, catalogRows);
   const expectedCatalogNames = catalogNamesForIds(catalogId, catalogRows);
+  if (source === 'export') {
+    const { downloadSalesCsv } = require('./sales-volume-export.js');
+    const { parseSalesCsv } = require('./sales-volume-csv.js');
+    const query = { mode: 'sku', aggregate_by: aggregateBy, date_dimension: dateDimension,
+      date_range: `${start.text} & ${end.text}`, index: 'sales-volume' };
+    for (const [key, value] of Object.entries({ auction_site: auctionSite, auction_site_type: auctionSiteType,
+      sku, catalog_id: catalogId, product_type_cate: productTypeCate })) {
+      if (value) query[key] = value;
+    }
+    const { file, taskId } = await downloadSalesCsv({ token, query, start: start.text, end: end.text, onProgress: argsValue.onProgress });
+    await argsValue.onProgress?.({ stage: 'parsing', taskId: String(taskId) });
+    const allRows = parseSalesCsv(file, { aggregateBy });
+    if (sort === 'mean' && allRows.some((row) => row.mean === null)) {
+      throw new CommandExecutionError('sales CSV is missing mean values required for mean sorting');
+    }
+    if (expectedCatalogNames?.size) {
+      if (allRows.some((row) => !expectedCatalogNames.has(row.catalog_name_cn))) {
+        throw new CommandExecutionError('sales CSV has missing or unexpected catalog names; cannot confirm catalog filter');
+      }
+    }
+    const seen = new Set();
+    checkDuplicateRows(allRows, seen, 'sales CSV', (row) => JSON.stringify([
+      row.auction_site ?? '', row.sku, aggregateBy === 'sku-platform' ? row.auction_site_type : '',
+    ]));
+    const rows = sortRows(allRows.filter((row) => !sku || row.sku === sku), sort, order);
+    const offset = fetchAll ? 0 : (page - 1) * pageSize;
+    const selected = fetchAll ? rows : rows.slice(offset, offset + pageSize);
+    if (!selected.length) throw new EmptyResultError('sales-volume-ranking', 'No SKU sales found in the requested CSV result page');
+    return selected.map((row, index) => ({ ...outputRow(row, offset + index + 1, rows.length, Boolean(argsValue.raw)),
+      source: 'export', taskId: String(taskId) }));
+  }
   const firstPage = await fetchSalesPage({
     token,
     page,
@@ -370,9 +404,12 @@ async function main(argsValue) {
     );
   }
 
-  const decoratedRows = mergedRows
-    .filter((apiRow) => !sku || String(apiRow?.sku ?? '').trim() === sku)
-    .map((apiRow, sourceIndex) => ({ apiRow, sourceIndex }));
+  const sortedRows = sortRows(mergedRows.filter((apiRow) => !sku || String(apiRow?.sku ?? '').trim() === sku), sort, order);
+  return sortedRows.map((row, index) => outputRow(row, index + 1, sortedRows.length, Boolean(argsValue.raw)));
+}
+
+function sortRows(rows, sort, order) {
+  const decoratedRows = rows.map((apiRow, sourceIndex) => ({ apiRow, sourceIndex }));
   decoratedRows.sort((leftItem, rightItem) => {
     const primary = compareNullable(
       rawSortValue(leftItem.apiRow, sort),
@@ -388,12 +425,7 @@ async function main(argsValue) {
     return skuTie !== 0 ? skuTie : leftItem.sourceIndex - rightItem.sourceIndex;
   });
 
-  return decoratedRows.map((item, index) => outputRow(
-    item.apiRow,
-    index + 1,
-    decoratedRows.length,
-    Boolean(argsValue.raw),
-  ));
+  return decoratedRows.map((item) => item.apiRow);
 }
 
 module.exports = {
