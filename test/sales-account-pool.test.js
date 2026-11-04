@@ -33,11 +33,12 @@ test('rejects duplicates, wrong periods, subtotal mismatch, unsafe totals and ov
   assert.throws(() => mergeParts([first([row('A', '2025-01', Number.MAX_SAFE_INTEGER)]), second([row('A', '2025-02', 1)])], 'monthly'), /unsafe/);
 });
 
-function fixture(download) {
+function fixture(download, { count = 2, maxParallelExports } = {}) {
   let clock = 0;
-  const accounts = [1, 2].map(i => ({ baseUrl: 'https://erp.example.com', token: `example-account-${i}` }));
+  const accounts = Array.from({ length: count }, (_, i) => ({ baseUrl: 'https://erp.example.com', token: `example-account-${i + 1}` }));
   const submits = [];
   const load = createPool({ getSessions: () => accounts, scope: { auctionSite: 'JY', productTypeCate: '5' },
+    maxParallelExports,
     now: () => clock, sleep: async ms => { clock += ms; }, download: async options => {
       await options.beforeSubmit();
       submits.push({ at: clock, token: getTokenFromArgs({}), baseUrl: getBaseUrl() });
@@ -57,6 +58,30 @@ test('isolates account context, staggers submissions and merges all data before 
   assert.deepEqual(submits.map(s => s.at), [0, 3000]);
   assert.deepEqual(submits.map(s => s.token), ['example-account-1', 'example-account-2']);
   assert.equal(result.rows[0].sales_sum, 4); assert.equal(result.parts, 2);
+});
+
+test('larger pools obey the configured limit, account count and month count', async () => {
+  for (const [limit, count, months, parts] of [[undefined, 6, 12, 3], [4, 6, 12, 4], [32, 6, 2, 2], [32, 4, 12, 4], [32, 40, 36, 32]]) {
+    const { load, submits } = fixture(async o => {
+      await Promise.resolve();
+      const labels = [];
+      for (let month = new Date(o.start.slice(0, 7) + '-01T00:00:00Z'); month.toISOString().slice(0, 7) <= o.end.slice(0, 7); month.setUTCMonth(month.getUTCMonth() + 1)) {
+        labels.push(month.toISOString().slice(0, 7));
+      }
+      return { taskId: o.start, fileIdentity: o.start + '.csv',
+        file: Buffer.from(`SKU,小计,${labels.join(',')}\nA,${labels.length},${labels.map(() => 1).join(',')}\n`) };
+    }, { count, maxParallelExports: limit });
+    const end = new Date(Date.UTC(2023, months, 0)).toISOString().slice(0, 10) + ' 23:59:59';
+    const result = await load({ ...options, start: '2023-01-01 00:00:00', end });
+    assert.equal(result.parts, parts);
+    assert.equal(result.rows[0].sales_sum, months);
+    assert.equal(result.rows[0].statistics_rows.length, months);
+    assert.deepEqual(submits.map(s => s.at), Array.from({ length: parts }, (_, i) => i * 3000));
+    assert.equal(new Set(submits.map(s => s.token)).size, parts);
+  }
+  for (const value of [0, -1, 33, 1.5, '4', null, Infinity]) {
+    assert.throws(() => fixture(undefined, { maxParallelExports: value }), /maxParallelExports/);
+  }
 });
 
 test('validates period headers even when a segment has no SKU rows', async () => {
@@ -85,19 +110,20 @@ test('remote runtime globally ranks all segments, persists results, and reuses r
   const fs = require('node:fs/promises'), os = require('node:os'), path = require('node:path');
   const { createRemoteRuntime } = require('../scripts/mcp-remote-runtime.js');
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-pool-'));
-  const sessionFiles = [path.join(root, 'one.json'), path.join(root, 'two.json')];
-  for (let i = 0; i < 2; i++) await fs.writeFile(sessionFiles[i], JSON.stringify({ version: 1,
+  const sessionFiles = Array.from({ length: 4 }, (_, i) => path.join(root, `${i}.json`));
+  for (let i = 0; i < 4; i++) await fs.writeFile(sessionFiles[i], JSON.stringify({ version: 1,
     baseUrl: 'https://erp.example.com', token: `example-token-${i}`, username: `example-user-${i}`, userId: i + 1 }), { mode: 0o600 });
-  const runtime = createRemoteRuntime({ rootDir: root, sessionFiles, poolScope: { auctionSite: 'JY', productTypeCate: '5' } });
+  const runtime = createRemoteRuntime({ rootDir: root, sessionFiles, maxParallelExports: 4, poolScope: { auctionSite: 'JY', productTypeCate: '5' } });
   t.after(async () => { await runtime.close(); await fs.rm(root, { recursive: true, force: true }); });
   const calls = [];
   t.mock.method(require('../scripts/sales-volume-export.js'), 'downloadSalesCsv', async o => {
     calls.push(o);
-    const jan = o.start.startsWith('2025-01');
-    return { taskId: jan ? 'one' : 'two', fileIdentity: jan ? 'one.csv' : 'two.csv',
-      file: Buffer.from(jan ? 'SKU,均值,小计,2025-01\nA,4,4,4\nB,6,6,6\n' : 'SKU,均值,小计,2025-02\nA,8,8,8\nC,5,5,5\n') };
+    const month = o.start.slice(0, 7), index = Number(month.slice(-2)) - 1;
+    const value = [4, 8, 1, 2][index];
+    return { taskId: month, fileIdentity: month + '.csv',
+      file: Buffer.from(`SKU,均值,小计,${month}\nA,1,${value},${value}\n` + (index === 0 ? 'B,6,6,6\n' : index === 1 ? 'C,5,5,5\n' : '')) };
   });
-  const params = { startDate: '2025-01-01', endDate: '2025-02-28', auctionSite: 'JY', pageSize: 1 };
+  const params = { startDate: '2025-01-01', endDate: '2025-04-30', auctionSite: 'JY', pageSize: 1 };
   const session = runtime.auth.requireSession();
   const receipt = await runtime.jobs.start('sales_volume_ranking', params, session, { requestId: 'one-ranking' });
   let done = receipt;
@@ -107,11 +133,12 @@ test('remote runtime globally ranks all segments, persists results, and reuses r
   }
   assert.equal(done.state, 'succeeded');
   const [top] = done.result.data.list;
-  assert.equal(top.sku, 'A'); assert.equal(top.sales, 12); assert.equal(top.totalCount, 3);
-  assert.equal(top.exportParts, 2); assert.equal(top.mean, null);
-  assert.deepEqual(calls.map(c => c.token), ['example-token-0', 'example-token-1']);
+  assert.equal(top.sku, 'A'); assert.equal(top.sales, 15); assert.equal(top.totalCount, 3);
+  assert.equal(top.exportParts, 4); assert.equal(top.mean, null);
+  assert.deepEqual(calls.map(c => c.token), ['example-token-0', 'example-token-1', 'example-token-2', 'example-token-3']);
   const retried = await runtime.jobs.start('sales_volume_ranking', params, session, { requestId: 'one-ranking' });
-  assert.equal(retried.jobId, receipt.jobId); assert.equal(calls.length, 2);
+  assert.equal(retried.jobId, receipt.jobId); assert.equal(calls.length, 4);
+  assert.equal(runtime.auth.status().maxParallelExports, 4);
   assert.doesNotMatch(JSON.stringify(runtime.auth.status()), /example-token|example-user/);
 });
 

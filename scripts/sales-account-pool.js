@@ -6,12 +6,17 @@ function invalid(message) {
   return new CommandExecutionError(`Account pool: ${message}`);
 }
 
+function normalizeParallelExports(value = 3) {
+  if (!Number.isInteger(value) || value < 1 || value > 32) throw invalid('maxParallelExports must be an integer from 1 to 32');
+  return value;
+}
+
 const format = timestamp => new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ');
 
 function splitMonths(start, end, count) {
   const from = normalizeDateTime(start, 'startDate', false).timestamp;
   const to = normalizeDateTime(end, 'endDate', true).timestamp;
-  if (to < from || !Number.isInteger(count) || count < 1 || count > 3) throw invalid('invalid split range or account count');
+  if (to < from || !Number.isSafeInteger(count) || count < 1) throw invalid('invalid split range or account count');
   const first = new Date(from), last = new Date(to);
   const months = (last.getUTCFullYear() - first.getUTCFullYear()) * 12 + last.getUTCMonth() - first.getUTCMonth() + 1;
   if (months > 1200) throw invalid('date range exceeds 100 years');
@@ -94,7 +99,8 @@ function mergeParts(parts, dimension) {
   });
 }
 
-function createPool({ getSessions, scope, download, isActive = () => true, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+function createPool({ getSessions, scope, download, maxParallelExports, isActive = () => true, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+  const concurrency = normalizeParallelExports(maxParallelExports);
   let gate = Promise.resolve(), nextSubmit = 0;
   function beforeSubmit() {
     const pending = gate.then(async () => {
@@ -110,7 +116,7 @@ function createPool({ getSessions, scope, download, isActive = () => true, now =
     const { query, start, end, onProgress } = options;
     const eligible = scope && query.auction_site === scope.auctionSite && query.product_type_cate === scope.productTypeCate
       && query.aggregate_by === 'sku' && !query.auction_site_type && !query.catalog_id && sort !== 'mean';
-    const ranges = splitMonths(start, end, eligible ? sessions.length : 1);
+    const ranges = splitMonths(start, end, eligible ? Math.min(sessions.length, concurrency) : 1);
     if (ranges.length === 1) {
       return withErpContext(sessions[0], () => download({ ...options, token: sessions[0].token, beforeSubmit }));
     }
@@ -131,4 +137,4 @@ function createPool({ getSessions, scope, download, isActive = () => true, now =
   };
 }
 
-module.exports = { splitMonths, mergeParts, createPool };
+module.exports = { splitMonths, mergeParts, createPool, normalizeParallelExports };

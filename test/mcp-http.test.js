@@ -310,7 +310,7 @@ test('private configuration, sessions, process lock, and Bun loopback binding ar
   const configFile = path.join(rootDir, 'config.json');
   const tokenFile = path.join(rootDir, 'token');
   const sessionFile = path.join(rootDir, 'session.json');
-  const config = { ...configFor(dataDir, rootDir), tokenFile };
+  const config = { ...configFor(dataDir, rootDir), tokenFile, maxParallelExports: 4 };
   await fs.writeFile(configFile, JSON.stringify(config), { mode: 0o600 });
   await fs.writeFile(tokenFile, `${TOKEN}\n`, { mode: 0o600 });
   await fs.writeFile(sessionFile, JSON.stringify({ version: 1, ...session, userId: 12, expireTime: null }), { mode: 0o600 });
@@ -321,6 +321,9 @@ test('private configuration, sessions, process lock, and Bun loopback binding ar
   assert.throws(() => validateConfig({ ...config, publicUrl: 'https://user@mcp.example.invalid/mcp' }));
   assert.throws(() => validateConfig({ ...config, publicUrl: `${PUBLIC_URL}?token=secret` }));
   assert.throws(() => validateConfig({ ...config, sessionFiles: [sessionFile, sessionFile] }));
+  assert.equal(validateConfig({ ...config, maxParallelExports: undefined }).maxParallelExports, 3);
+  assert.equal(validateConfig({ ...config, sessionFiles: Array.from({ length: 40 }, (_, i) => path.join(rootDir, `${i}.json`)), maxParallelExports: 32 }).maxParallelExports, 32);
+  for (const value of [0, -1, 33, 1.5, '4', null]) assert.throws(() => validateConfig({ ...config, maxParallelExports: value }));
   assert.throws(() => validateConfig({ ...config, poolScope: { auctionSite: 'OTHER', productTypeCate: '5' } }));
 
   const lock = await acquireProcessLock(dataDir);
@@ -330,18 +333,20 @@ test('private configuration, sessions, process lock, and Bun loopback binding ar
   await nextLock.release();
 
   let serveOptions;
+  let runtimeOptions;
   let runtimeClosed = 0;
   const service = await startHttpServer({
     env: { NEW_ERP_HTTP_CONFIG: configFile },
     bun: { serve(options) { serveOptions = options; return { stop() {} }; } },
-    runtimeFactory: async () => ({
+    runtimeFactory: async options => { runtimeOptions = options; return {
       auth: { requireSession: () => session, status: () => ({ loggedIn: true }), async close() { runtimeClosed += 1; } },
       jobs: { async status() {}, async close() { runtimeClosed += 1; } },
       async close() { runtimeClosed += 1; },
-    }),
+    }; },
   });
   assert.equal(serveOptions.hostname, '127.0.0.1');
   assert.equal(serveOptions.port, 8443);
+  assert.equal(runtimeOptions.maxParallelExports, 4);
   await service.close();
   assert.equal(runtimeClosed, 1);
 });

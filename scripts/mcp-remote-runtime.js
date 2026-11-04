@@ -2,12 +2,13 @@ const { readSession, sessionExpired } = require('./local-session.js');
 const { normalizeBaseUrl } = require('./shared.js');
 const { ownerOf } = require('./mcp-job-store.js');
 const { createJobs } = require('./mcp-jobs.js');
-const { createPool } = require('./sales-account-pool.js');
+const { createPool, normalizeParallelExports } = require('./sales-account-pool.js');
 const catalog = require('./mcp-catalog.js');
 
-function createRemoteRuntime({ rootDir, sessionFiles, poolScope }) {
+function createRemoteRuntime({ rootDir, sessionFiles, poolScope, maxParallelExports }) {
   let closed = false;
-  if (!Array.isArray(sessionFiles) || sessionFiles.length < 1 || sessionFiles.length > 3) throw new Error('Configure one to three session files');
+  if (!Array.isArray(sessionFiles) || sessionFiles.length < 1) throw new Error('Configure at least one session file');
+  const concurrency = normalizeParallelExports(maxParallelExports);
   if (poolScope && (poolScope.auctionSite !== 'JY' || poolScope.productTypeCate !== '5'
     || Object.keys(poolScope).some(k => !['auctionSite', 'productTypeCate'].includes(k)))) {
     throw new Error('Only explicitly verified JY top-level scope supports pooling');
@@ -29,12 +30,12 @@ function createRemoteRuntime({ rootDir, sessionFiles, poolScope }) {
   const auth = {
     requireSession: () => sessions()[0],
     status() {
-      try { sessions(); return { state: 'authenticated', loggedIn: true, accounts: sessionFiles.length, poolEnabled: Boolean(poolScope) }; }
+      try { sessions(); return { state: 'authenticated', loggedIn: true, accounts: sessionFiles.length, poolEnabled: Boolean(poolScope), maxParallelExports: concurrency }; }
       catch { return { state: 'login_required', loggedIn: false, accounts: sessionFiles.length }; }
     },
     async close() {},
   };
-  const load = createPool({ getSessions: sessions, scope: poolScope, isActive: () => !closed,
+  const load = createPool({ getSessions: sessions, scope: poolScope, maxParallelExports: concurrency, isActive: () => !closed,
     download: options => require('./sales-volume-export.js').downloadSalesCsv(options) });
   const jobs = createJobs({ rootDir, getOperation(name) {
     const operation = catalog.getOperation(name);

@@ -6,6 +6,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Readable } = require('node:stream');
+const { normalizeParallelExports } = require('./sales-account-pool.js');
 
 const MAX_REQUEST_BYTES = 128 * 1024;
 const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
@@ -26,7 +27,7 @@ function invalidConfiguration() {
 
 function validateConfig(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidConfiguration();
-  const allowed = new Set(['publicUrl', 'port', 'tokenFile', 'dataDir', 'sessionFiles', 'poolScope']);
+  const allowed = new Set(['publicUrl', 'port', 'tokenFile', 'dataDir', 'sessionFiles', 'poolScope', 'maxParallelExports']);
   if (Object.keys(value).some(key => !allowed.has(key))) throw invalidConfiguration();
   if (typeof value.publicUrl !== 'string' || value.publicUrl.length > 2048) throw invalidConfiguration();
 
@@ -39,12 +40,14 @@ function validateConfig(value) {
   if (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535
     || typeof value.tokenFile !== 'string' || !path.isAbsolute(value.tokenFile)
     || typeof value.dataDir !== 'string' || !path.isAbsolute(value.dataDir)
-    || !Array.isArray(value.sessionFiles) || value.sessionFiles.length < 1 || value.sessionFiles.length > 3
+    || !Array.isArray(value.sessionFiles) || value.sessionFiles.length < 1
     || value.sessionFiles.some(file => typeof file !== 'string' || !path.isAbsolute(file))) {
     throw invalidConfiguration();
   }
   const sessionFiles = value.sessionFiles.map(file => path.resolve(file));
   if (new Set(sessionFiles).size !== sessionFiles.length) throw invalidConfiguration();
+  let maxParallelExports;
+  try { maxParallelExports = normalizeParallelExports(value.maxParallelExports); } catch { throw invalidConfiguration(); }
 
   let poolScope;
   if (Object.hasOwn(value, 'poolScope')) {
@@ -65,6 +68,7 @@ function validateConfig(value) {
     tokenFile: path.resolve(value.tokenFile),
     dataDir: path.resolve(value.dataDir),
     sessionFiles,
+    maxParallelExports,
     ...(poolScope ? { poolScope } : {}),
   };
 }
@@ -362,6 +366,7 @@ async function createHttpHandler({ config, token, runtime, maxRequestBytes = MAX
     tokenFile: config?.tokenFile,
     dataDir: config?.dataDir,
     sessionFiles: config?.sessionFiles,
+    maxParallelExports: config?.maxParallelExports,
     ...(config?.poolScope ? { poolScope: config.poolScope } : {}),
   });
   if (typeof token !== 'string' || !/^[\x21-\x7e]{32,1024}$/.test(token)
@@ -459,6 +464,7 @@ async function startHttpServer({ env = process.env, bun = globalThis.Bun, runtim
     runtime = await createRuntime({
       rootDir: lock.dataDir,
       sessionFiles: config.sessionFiles,
+      maxParallelExports: config.maxParallelExports,
       poolScope: config.poolScope,
     });
     handler = await createHttpHandler({ config, token, runtime });
