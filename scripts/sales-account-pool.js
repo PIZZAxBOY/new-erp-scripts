@@ -119,7 +119,9 @@ function createPool({ getSessions, scope, download, isActive = () => true, now =
       const result = await download({ token: sessions[index].token, query: partQuery, ...range, beforeSubmit,
         onProgress: progress => onProgress?.({ ...progress, phase: `part ${index + 1}/${ranges.length}` }) });
       if (typeof result.fileIdentity !== 'string' || !result.fileIdentity) throw invalid('cannot verify distinct output files');
-      return { ...range, ...result, rows: parseSalesCsv(result.file, { aggregateBy: 'sku' }) };
+      return { ...range, ...result, rows: parseSalesCsv(result.file, {
+        aggregateBy: 'sku', expectedPeriods: monthLabels(range.start, range.end),
+      }) };
     })));
     const failure = results.find(r => r.status === 'rejected');
     if (failure) throw invalid('a segment failed; no partial ranking returned');

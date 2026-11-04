@@ -59,8 +59,20 @@ test('isolates account context, staggers submissions and merges all data before 
   assert.equal(result.rows[0].sales_sum, 4); assert.equal(result.parts, 2);
 });
 
+test('validates period headers even when a segment has no SKU rows', async () => {
+  const make = header => fixture(async options => {
+    const first = options.start.startsWith('2025-01');
+    return { taskId: first ? 'one' : 'two', fileIdentity: first ? 'one.csv' : 'two.csv',
+      file: Buffer.from(first ? `SKU,小计,${header}\n` : 'SKU,小计,2025-02\nA,2,2\n') };
+  });
+  assert.equal((await make('2025年1月').load(options)).rows[0].sales_sum, 2);
+  await assert.rejects(make('2025-02').load(options), /no partial ranking/);
+  await assert.rejects(make('2025-01,2025年1月').load(options), /no partial ranking/);
+});
+
 test('fails closed on shared output file or any segment failure; mean sorting stays single-account', async () => {
-  const shared = fixture(async () => ({ file: Buffer.from('SKU,均值,小计,2025-01\nA,1,1,1\n'), taskId: 'x', fileIdentity: 'same.csv' }));
+  const shared = fixture(async options => ({ file: Buffer.from(`SKU,均值,小计,${options.start.slice(0, 7)}\nA,1,1,1\n`),
+    taskId: 'x', fileIdentity: 'same.csv' }));
   await assert.rejects(shared.load(options), /output-file collision/);
   const broken = fixture(async () => { throw new Error('example-private-detail'); });
   await assert.rejects(broken.load(options), /no partial ranking/);
