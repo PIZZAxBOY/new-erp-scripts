@@ -70,7 +70,7 @@ ASIN 查询在原商品详情字段之外提供：
 
 ## 市场订单
 
-`marketOrderList(options)` / `new-erp market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 ERP 接口文档及前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
+`marketOrderList(options)` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 ERP 接口文档及前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
 
 | 选项 | ERP 参数与含义 |
 | --- | --- |
@@ -124,7 +124,7 @@ const detail = await exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER
 // 用保存的ID恢复：exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER', stockFrom: 'DEMO-FROM', taskId })
 ```
 
-MCP 的 `packing_order_pages` 操作逐页返回 JSON；导出任务通过 `jobs.status` 查询，或按文档使用 `taskId` 恢复。导出保持 ERP 原文，包含 SKU、数量、渠道、箱实重kg和尺寸cm，不直接返回四种运输占比或货代最终结算重量。
+MCP 的 `packing_order_pages` 操作逐页读取并保存为本地 NDJSON 文件，通过 `jobs.status` 获取任务结果和文件路径。装箱导出任务也通过 `jobs.status` 查询，或按文档使用 `taskId` 恢复。导出保持 ERP 原文，包含 SKU、数量、渠道、箱实重kg和尺寸cm，不直接返回四种运输占比或货代最终结算重量。
 
 ### 请求数验证
 

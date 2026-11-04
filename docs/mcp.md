@@ -6,7 +6,6 @@
 
 ```sh
 npm install -g new-erp-mcp
-new-erp-mcp
 ```
 
 将启动命令配置为标准 stdio MCP。Codex 可用全局安装包手动注册：
