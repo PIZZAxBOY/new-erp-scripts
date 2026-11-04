@@ -214,6 +214,7 @@ async function fetchSalesPage({
 
 const args = [
   { name: 'source', type: 'string', choices: ['export', 'list'], default: 'export', help: '默认 export：异步导出完整 CSV 后排序分页，避免长时间列表统计超时；list 显式使用旧列表接口' },
+  { name: 'forceRefresh', type: 'bool', default: false, help: '远程 MCP export 模式跳过精确查询缓存并重新导出；刷新需使用新的 requestId，同一 requestId 仍返回原任务。JS/stdio 无共享缓存' },
   { name: 'startDate', type: 'string', default: '', help: '开始时间，YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss（必填）' },
   { name: 'endDate', type: 'string', default: '', help: '结束时间，YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss（必填）' },
   { name: 'auctionSite', type: 'string', default: '', help: '品牌：EXR/eXtremeRate → JY；PV/PlayVital → YS；HEX/HexGaming → HX；OG/OstroGear → OG；留空查询全部品牌' },
@@ -312,7 +313,8 @@ async function main(argsValue) {
     const selected = fetchAll ? rows : rows.slice(offset, offset + pageSize);
     if (!selected.length) throw new EmptyResultError('sales-volume-ranking', 'No SKU sales found in the requested CSV result page');
     return selected.map((row, index) => ({ ...outputRow(row, offset + index + 1, rows.length, Boolean(argsValue.raw)),
-      source: 'export', taskId: String(taskId), ...(exported.parts ? { exportParts: exported.parts } : {}) }));
+      source: 'export', taskId: String(taskId), ...(exported.parts ? { exportParts: exported.parts } : {}),
+      ...(exported.cache ? { cache: exported.cache } : {}) }));
   }
   const firstPage = await fetchSalesPage({
     token,

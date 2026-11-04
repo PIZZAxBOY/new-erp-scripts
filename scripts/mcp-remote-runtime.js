@@ -3,12 +3,16 @@ const { normalizeBaseUrl } = require('./shared.js');
 const { ownerOf } = require('./mcp-job-store.js');
 const { createJobs } = require('./mcp-jobs.js');
 const { createPool, normalizeParallelExports } = require('./sales-account-pool.js');
+const { normalizeSingleAccountDays } = require('./sales-account-pool.js');
+const { createSalesCache } = require('./sales-export-cache.js');
 const catalog = require('./mcp-catalog.js');
 
-function createRemoteRuntime({ rootDir, sessionFiles, poolScope, maxParallelExports }) {
+function createRemoteRuntime({ rootDir, sessionFiles, poolScope, maxParallelExports, singleAccountDays, salesCache }) {
   let closed = false;
   if (!Array.isArray(sessionFiles) || sessionFiles.length < 1) throw new Error('Configure at least one session file');
   const concurrency = normalizeParallelExports(maxParallelExports);
+  const smallRangeDays = normalizeSingleAccountDays(singleAccountDays);
+  const cache = createSalesCache({ rootDir, config: salesCache });
   if (poolScope && (poolScope.auctionSite !== 'JY' || poolScope.productTypeCate !== '5'
     || Object.keys(poolScope).some(k => !['auctionSite', 'productTypeCate'].includes(k)))) {
     throw new Error('Only explicitly verified JY top-level scope supports pooling');
@@ -35,14 +39,17 @@ function createRemoteRuntime({ rootDir, sessionFiles, poolScope, maxParallelExpo
     },
     async close() {},
   };
-  const load = createPool({ getSessions: sessions, scope: poolScope, maxParallelExports: concurrency, isActive: () => !closed,
+  const load = createPool({ getSessions: sessions, scope: poolScope, maxParallelExports: concurrency, singleAccountDays: smallRangeDays, isActive: () => !closed,
     download: options => require('./sales-volume-export.js').downloadSalesCsv(options) });
   const jobs = createJobs({ rootDir, getOperation(name) {
     const operation = catalog.getOperation(name);
     if (name !== 'sales_volume_ranking') return operation;
     return { ...operation, invoke(params, hooks) {
       return require('./sales-volume-ranking.js').main({ ...params, onProgress: hooks.onProgress,
-        loadExport: options => load(options, { sort: params.sort }) });
+        loadExport: options => cache.load(options, {
+          identity: { accounts: sessions().map(ownerOf), poolScope, concurrency, smallRangeDays, mean: params.sort === 'mean' },
+          forceRefresh: params.forceRefresh,
+        }, () => load(options, { sort: params.sort })) });
     } };
   } });
   return { auth, jobs, async close() { closed = true; await jobs.close(); await auth.close(); } };

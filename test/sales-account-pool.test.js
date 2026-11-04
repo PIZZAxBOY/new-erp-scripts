@@ -8,6 +8,9 @@ test('splits full and partial months without overlap or missing seconds, includi
   assert.deepEqual(ranges, [{ start: '2024-01-15 13:00:00', end: '2024-02-29 23:59:59' },
     { start: '2024-03-01 00:00:00', end: '2024-04-07 11:12:13' }]);
   assert.equal(splitMonths('2025-02-01', '2025-02-28', 3).length, 1);
+  assert.deepEqual(splitMonths('2024-01-31', '2024-02-01', 2), [{ start: '2024-01-31 00:00:00', end: '2024-02-01 23:59:59' }]);
+  assert.equal(splitMonths('2024-05-20', '2024-07-10', 2).length, 1);
+  assert.equal(splitMonths('2024-01-01', '2024-02-29', 2, 60).length, 1);
   assert.throws(() => splitMonths('2025-02-30', '2025-03-31', 2));
 });
 

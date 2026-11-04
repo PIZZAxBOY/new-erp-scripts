@@ -7,6 +7,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Readable } = require('node:stream');
 const { normalizeParallelExports } = require('./sales-account-pool.js');
+const { normalizeSingleAccountDays } = require('./sales-account-pool.js');
+const { normalizeCacheConfig } = require('./sales-export-cache.js');
 
 const MAX_REQUEST_BYTES = 128 * 1024;
 const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
@@ -27,7 +29,7 @@ function invalidConfiguration() {
 
 function validateConfig(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidConfiguration();
-  const allowed = new Set(['publicUrl', 'port', 'tokenFile', 'dataDir', 'sessionFiles', 'poolScope', 'maxParallelExports']);
+  const allowed = new Set(['publicUrl', 'port', 'tokenFile', 'dataDir', 'sessionFiles', 'poolScope', 'maxParallelExports', 'singleAccountDays', 'salesCache']);
   if (Object.keys(value).some(key => !allowed.has(key))) throw invalidConfiguration();
   if (typeof value.publicUrl !== 'string' || value.publicUrl.length > 2048) throw invalidConfiguration();
 
@@ -48,6 +50,11 @@ function validateConfig(value) {
   if (new Set(sessionFiles).size !== sessionFiles.length) throw invalidConfiguration();
   let maxParallelExports;
   try { maxParallelExports = normalizeParallelExports(value.maxParallelExports); } catch { throw invalidConfiguration(); }
+  let singleAccountDays, salesCache;
+  try {
+    singleAccountDays = normalizeSingleAccountDays(value.singleAccountDays);
+    salesCache = normalizeCacheConfig(value.salesCache);
+  } catch { throw invalidConfiguration(); }
 
   let poolScope;
   if (Object.hasOwn(value, 'poolScope')) {
@@ -69,6 +76,8 @@ function validateConfig(value) {
     dataDir: path.resolve(value.dataDir),
     sessionFiles,
     maxParallelExports,
+    singleAccountDays,
+    salesCache,
     ...(poolScope ? { poolScope } : {}),
   };
 }
@@ -465,6 +474,8 @@ async function startHttpServer({ env = process.env, bun = globalThis.Bun, runtim
       rootDir: lock.dataDir,
       sessionFiles: config.sessionFiles,
       maxParallelExports: config.maxParallelExports,
+      singleAccountDays: config.singleAccountDays,
+      salesCache: config.salesCache,
       poolScope: config.poolScope,
     });
     handler = await createHttpHandler({ config, token, runtime });

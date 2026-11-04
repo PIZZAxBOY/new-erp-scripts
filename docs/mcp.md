@@ -82,9 +82,9 @@ erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-sales-2026-10-to
 } })
 ```
 
-`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。分类记录计数保持全部类型默认值。排名默认 `source: 'export'`，先创建 ERP 导出任务，再解析完整 CSV 并全局排序，最后按 page/pageSize 截取；Top10 也会导出全量，不能承诺更快。`fetchAll: true` 返回全部排名，指定 `sku` 时精确过滤并返回全部匹配结果。
+`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。分类记录计数保持全部类型默认值。排名默认 `source: 'export'`，解析完整 CSV 并全局排序，最后按 page/pageSize 截取；Top10 也需要完整数据，不能承诺更快。远程 HTTP MCP 可复用同一精确查询的短期完整缓存；JS API 和 stdio MCP 每次执行新的导出。`fetchAll: true` 返回全部排名，指定 `sku` 时精确过滤并返回全部匹配结果。远程缓存的权限隔离、数据新鲜度和强制刷新见[远程 MCP 文档](./remote-mcp.md#远程销量缓存)。
 
-通过 `jobs.status` 轮询同一个 jobId；进度包含提交、等待、下载、解析和上游 taskId。重试使用相同 requestId，不要每次轮询新建导出。最长等待约20分钟，CSV 上限64MiB；后台任务失败或 CSV 无法识别会报错，不返回部分排名。实际 CSV 表头尚未用生产导出验证。
+通过 `jobs.status` 轮询同一个 jobId；进度包含提交、等待、下载、解析和上游 taskId。重试或轮询使用相同 requestId，不要每次轮询新建导出；远程缓存的强制刷新则必须使用新的 requestId。最长等待约20分钟，CSV 上限64MiB；后台任务失败或 CSV 无法识别会报错，不返回部分排名。实际 CSV 表头尚未用生产导出验证。
 
 短范围需要旧单页接口时可显式设置 `source: 'list'`（MCP 仍要求 requestId）：单页沿用 ERP 原生销量降序，其他排序、SKU 精确查询需要完整分页，maxPages 只对 list 生效。不要先试长范围列表、超时后再重复提交导出。需要超过100名可用一次 fetchAll 并读取结果，避免为每页重复导出。
 

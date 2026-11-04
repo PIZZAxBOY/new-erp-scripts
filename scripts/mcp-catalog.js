@@ -96,6 +96,7 @@ function requirementsFor(entry, args) {
   if (entry.effect === 'export') requirements.push(entry.name === 'sales_volume_ranking'
     ? 'Requires a stable requestId (also for source=list). Returns ranking data; poll jobs.status with the same jobId. CSV is parsed in memory, not saved as an artifact.'
     : 'Requires a stable requestId. Files are saved to a server-managed private artifact.');
+  if (entry.name === 'sales_volume_ranking') requirements.push('远程 export 可复用同日期、筛选和权限范围的完整缓存（默认15分钟），再本地排序分页；返回 cache.hit/fetchedAt/expiresAt。forceRefresh=true 跳过缓存，须用新 requestId；重复同一 requestId 始终读取原任务。缓存不是实时数据，JS/stdio 和 source=list 不启用共享缓存。');
   for (const arg of args.filter((field) => field.choices)) {
     requirements.push(`${arg.name}: ${arg.choices.join(', ')} (runtime aliases may also be accepted)`);
   }

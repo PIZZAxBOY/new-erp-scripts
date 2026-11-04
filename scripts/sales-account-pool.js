@@ -13,20 +13,43 @@ function normalizeParallelExports(value = 3) {
 
 const format = timestamp => new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ');
 
-function splitMonths(start, end, count) {
+function normalizeSingleAccountDays(value = 31) {
+  if (!Number.isInteger(value) || value < 1 || value > 366) throw invalid('singleAccountDays must be an integer from 1 to 366');
+  return value;
+}
+
+function splitMonths(start, end, count, singleAccountDays = 31) {
+  normalizeSingleAccountDays(singleAccountDays);
   const from = normalizeDateTime(start, 'startDate', false).timestamp;
   const to = normalizeDateTime(end, 'endDate', true).timestamp;
   if (to < from || !Number.isSafeInteger(count) || count < 1) throw invalid('invalid split range or account count');
   const first = new Date(from), last = new Date(to);
   const months = (last.getUTCFullYear() - first.getUTCFullYear()) * 12 + last.getUTCMonth() - first.getUTCMonth() + 1;
   if (months > 1200) throw invalid('date range exceeds 100 years');
+  const duration = to + 1000 - from;
+  const minimum = 14 * 86400000;
+  const candidates = [];
+  for (let i = 1; i < months; i++) {
+    const boundary = Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + i, 1);
+    if (boundary - from >= minimum && to + 1000 - boundary >= minimum) candidates.push(boundary);
+  }
+  const size = duration <= singleAccountDays * 86400000 ? 1 : Math.min(count, candidates.length + 1);
   const boundaries = [from];
-  for (let i = 1; i < months; i++) boundaries.push(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + i, 1));
+  let next = 0;
+  for (let i = 1; i < size; i++) {
+    const target = from + duration * i / size;
+    const last = candidates.length - (size - i);
+    let chosen = next;
+    for (let j = next + 1; j <= last; j++) {
+      if (Math.abs(candidates[j] - target) < Math.abs(candidates[chosen] - target)) chosen = j;
+    }
+    boundaries.push(candidates[chosen]);
+    next = chosen + 1;
+  }
   boundaries.push(to + 1000);
-  const size = Math.min(count, months);
   return Array.from({ length: size }, (_, i) => ({
-    start: format(boundaries[Math.floor(i * months / size)]),
-    end: format(boundaries[Math.floor((i + 1) * months / size)] - 1000),
+    start: format(boundaries[i]),
+    end: format(boundaries[i + 1] - 1000),
   }));
 }
 
@@ -99,8 +122,9 @@ function mergeParts(parts, dimension) {
   });
 }
 
-function createPool({ getSessions, scope, download, maxParallelExports, isActive = () => true, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+function createPool({ getSessions, scope, download, maxParallelExports, singleAccountDays, isActive = () => true, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const concurrency = normalizeParallelExports(maxParallelExports);
+  const smallRangeDays = normalizeSingleAccountDays(singleAccountDays);
   let gate = Promise.resolve(), nextSubmit = 0;
   function beforeSubmit() {
     const pending = gate.then(async () => {
@@ -116,7 +140,7 @@ function createPool({ getSessions, scope, download, maxParallelExports, isActive
     const { query, start, end, onProgress } = options;
     const eligible = scope && query.auction_site === scope.auctionSite && query.product_type_cate === scope.productTypeCate
       && query.aggregate_by === 'sku' && !query.auction_site_type && !query.catalog_id && sort !== 'mean';
-    const ranges = splitMonths(start, end, eligible ? Math.min(sessions.length, concurrency) : 1);
+    const ranges = splitMonths(start, end, eligible ? Math.min(sessions.length, concurrency) : 1, smallRangeDays);
     if (ranges.length === 1) {
       return withErpContext(sessions[0], () => download({ ...options, token: sessions[0].token, beforeSubmit }));
     }
@@ -137,4 +161,4 @@ function createPool({ getSessions, scope, download, maxParallelExports, isActive
   };
 }
 
-module.exports = { splitMonths, mergeParts, createPool, normalizeParallelExports };
+module.exports = { splitMonths, mergeParts, createPool, normalizeParallelExports, normalizeSingleAccountDays, monthLabels };

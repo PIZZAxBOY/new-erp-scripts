@@ -29,13 +29,21 @@ Authorization: Bearer <由管理员提供的访问令牌>
   "sessionFiles": [
     "/ABSOLUTE/PRIVATE/PATH/session-one.json"
   ],
-  "maxParallelExports": 3
+  "maxParallelExports": 3,
+  "singleAccountDays": 31,
+  "salesCache": {
+    "enabled": true,
+    "ttlSeconds": 900,
+    "maxBytes": 268435456,
+    "maxEntries": 256,
+    "epoch": "permissions-v1"
+  }
 }
 ```
 
 `publicUrl` 必须是 HTTPS origin 加精确 `/mcp` 路径，不可包含用户信息、查询或片段；其 Host 及 Origin 用于严格校验。反向代理必须保留客户端的公开 Host/Origin，不要将 Host 改写为 loopback 地址，也不要依赖转发头完成认证。进程固定绑定回环地址，端口为 `1`–`65535` 的整数。`dataDir` 用于私有任务产物和独占进程锁；若锁仍存在（包括可能的陈旧锁），启动会失败关闭，管理员应先确认旧进程已停止，再人工检查并清理锁。`sessionFiles` 必须包含至少一个不同的绝对路径，不再限制为三个；读取时会验证所有会话文件安全性、身份和有效期。
 
-`maxParallelExports` 是可选的管理员并发上限，范围为整数 `1`–`32`，省略时为 `3`；账号池总数与并发数分开配置。实际段数为账号数、上限和查询覆盖月份数的最小值，使用 `sessionFiles` 中靠前的对应数量账号，不轮转其余账号。例如六个账号、上限为 `6`，查询完整一年会分成六个两月段；同样配置查询两个月仅使用两个账号。设为 `1` 时退回主账号整段导出。
+`maxParallelExports` 是管理员并发上限，范围为整数 `1`–`32`，省略时为 `3`。`singleAccountDays` 是单账号阈值，范围为整数 `1`–`366`，省略时为 `31`；按包含开始时刻到结束秒的实际持续时间判定。两者都只约束本服务提交的账号池导出。
 
 ### 可选账号池范围
 
@@ -47,11 +55,44 @@ Authorization: Bearer <由管理员提供的访问令牌>
 
 配置此范围是管理员的明确断言：所有配置的 ERP 会话已由管理员核实属于同一 HTTPS ERP origin、代表不同身份，并对该范围拥有相同的数据访问权限。**测试夹具或一次性检查不能证明权限长期相同**；权限发生变化时应停用账号池并重新核验。当前账号池仅对已验证的精确查询范围生效；其他查询由一个账号执行。所有分段都成功且校验通过后才会产生完整排名，不返回部分汇总。
 
-目前仅对 `sales_volume_ranking` 的 CSV 模式、按 SKU 汇总、无平台/分类筛选且跨至少两个月的范围拆分。按月边界和 `maxParallelExports` 切分为不重叠段，提交至少错开三秒；全部 CSV 的文件身份、SKU 唯一性、期间列和小计校验通过后，合并全部 SKU，再统一排序和分页。年度结果由月度累加。合并结果的 `mean` 为 `null`，不猜测均值口径；按 `mean` 排序时仍用主账号整段导出。`exportParts` 表示实际合并段数。调度只能约束经过本服务的提交，不能阻止外部 ERP 用户同时创建导出。增加账号不保证等比例提速，ERP 负载和错峰等待都会影响耗时。
+只有 `sales_volume_ranking` 的 CSV 模式、按 SKU 汇总、无平台/分类筛选且匹配配置范围的查询才可拆分；按 `mean` 排序或其他不匹配查询始终由一个账号执行。符合条件的查询若不超过 `singleAccountDays`，也只用一个账号。更长范围只考虑日历月边界，并要求首段和末段都至少 14 天；在有效边界中按实际时间长度尽量均分。实际段数不超过账号数、`maxParallelExports` 和有效边界允许的段数，使用 `sessionFiles` 中靠前的账号，不轮转；若没有有效边界则保持单段。各段保留精确的起止时间，互不重叠也不遗漏；提交至少错开三秒。全部 CSV 的文件身份、SKU 唯一性、期间列和小计校验通过后，合并全部 SKU，再统一排序和分页。年度结果由月度数据累加。合并结果的 `mean` 为 `null`，不猜测均值口径；`exportParts` 表示实际合并段数。增加账号不保证等比例提速，ERP 负载和错峰等待都会影响耗时。
 
 ### 添加更多服务端账号
 
 管理员使用本地登录流程生成新增账号的独立私有会话文件（权限 `600`），核验同源、不同身份和查询范围的数据权限等价，再将路径追加到 `sessionFiles`，按需要提高 `maxParallelExports`。等待运行和排队任务结束后重启独立 MCP 服务使配置生效，使用 `auth.status` 确认 `accounts` 与 `maxParallelExports`。任一配置账号过期或无效都会要求管理员处理，不静默跳过。远程客户端不需要任何账号设置，也不提供远程添加、登录或登出入口。
+
+### 远程销量缓存
+
+远程 MCP 的 `sales_volume_ranking` 默认启用完整结果缓存；JavaScript API、stdio MCP 和 `source: "list"` 不使用此共享缓存。缓存的是完整、解析并校验过的排名数据，在 SKU 过滤、排序和分页之前读取，因此同一精确查询的不同页和非 `mean` 排序可以复用。不同日期范围不会互相复用，也不从月度缓存拼接任意区间。每次 MCP 请求仍须通过当前 ERP 会话认证；缓存身份部分只使用账号身份哈希，不含访问令牌。
+
+`salesCache` 可省略，默认 `enabled: true`、`ttlSeconds: 900`、`maxBytes: 268435456`（256 MiB）、`maxEntries: 256`、`epoch: ""`。有效范围分别为：TTL `1`–`86400` 秒、总字节数 `1024`–`1073741824`、条目数 `1`–`10000`，`enabled` 必须是布尔值；`epoch` 是不超过 200 字符的管理员版本标记。每条记录另有 64 MiB 上限；超过限制的结果仍可用于本次响应，但不会持久化。缓存存放在 `dataDir/.sales-cache`，使用私有目录/文件权限、SHA-256 校验和、原子写入，并在 TTL 或容量限制触发时优先清除最早写入的记录。禁用缓存会直接调用原导出流程。
+
+缓存键由 schema 版本、精确查询与起止时间、账号身份哈希、账号池范围、并发上限、`singleAccountDays`、是否按 `mean` 排序以及 `epoch` 组成。ERP 会话仍有效并不能证明上游数据权限没有变化；权限或授权范围变化后，管理员必须更新 `epoch`，避免复用旧权限范围的数据。TTL 从完整数据下载、解析和校验完成后计算；默认缓存命中可能返回最多 15 分钟前的数据，不是实时查询或不可变历史快照。旧的 `.mcp-jobs` 任务结果不受 `salesCache` 的字节数/条目数限制，也不会自动清理。
+
+第一次请求和后续分页使用各自新的 `requestId`；相同请求、不同页可以命中同一完整缓存：
+
+```js
+erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-page-1', params: {
+  startDate: '2025-01-01', endDate: '2025-12-31', auctionSite: 'JY',
+  productTypeCate: '5', page: 1, pageSize: 10
+} })
+
+erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-page-2', params: {
+  startDate: '2025-01-01', endDate: '2025-12-31', auctionSite: 'JY',
+  productTypeCate: '5', page: 2, pageSize: 10
+} })
+```
+
+返回行会标记 `cache.hit`、`cache.fetchedAt` 和 `cache.expiresAt`；未命中时还含 `cache.stored`。要强制重新导出，使用 `forceRefresh: true` 和新的 `requestId`：
+
+```js
+erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-refresh-001', params: {
+  startDate: '2025-01-01', endDate: '2025-12-31', auctionSite: 'JY',
+  productTypeCate: '5', forceRefresh: true
+} })
+```
+
+强制刷新会先删除该精确查询的旧缓存；如果新导出失败，不回退到旧结果。复用原 `requestId` 始终返回原任务，不会触发刷新。权限变化应更新 `epoch`；`forceRefresh` 适合获取较新的上游数据。缓存容量配置只约束 `.sales-cache`，不约束已有或新建的 `.mcp-jobs` 工件。
 
 ## 请求限制与任务结果
 

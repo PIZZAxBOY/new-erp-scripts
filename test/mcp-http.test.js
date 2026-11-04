@@ -347,6 +347,11 @@ test('private configuration, sessions, process lock, and Bun loopback binding ar
   assert.equal(serveOptions.hostname, '127.0.0.1');
   assert.equal(serveOptions.port, 8443);
   assert.equal(runtimeOptions.maxParallelExports, 4);
+  assert.equal(runtimeOptions.singleAccountDays, 31);
+  assert.equal(runtimeOptions.salesCache.ttlSeconds, 900);
+  for (const invalid of [{ singleAccountDays: 0 }, { salesCache: { ttlSeconds: -1 } }, { salesCache: { enabled: 'yes' } }]) {
+    assert.throws(() => validateConfig({ ...config, ...invalid }));
+  }
   await service.close();
   assert.equal(runtimeClosed, 1);
 });

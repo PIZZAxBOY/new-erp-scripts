@@ -59,7 +59,7 @@ function parseSalesCsv(file, { aggregateBy = 'sku', expectedPeriods } = {}) {
   const periods = headers.flatMap((header, index) => /^(?:\d{4}(?:-(?:0[1-9]|1[0-2]))?|\d{4}年(?:(?:0?[1-9]|1[0-2])月)?)$/.test(header)
     ? [{ date: header, index }] : []);
   if (expectedPeriods) {
-    const labels = periods.map(({ date }) => date.replace(/^(\d{4})年(\d{1,2})月$/, (_, year, month) => `${year}-${month.padStart(2, '0')}`));
+    const labels = periods.map(({ date }) => date.replace(/^(\d{4})年(?:(\d{1,2})月)?$/, (_, year, month) => month ? `${year}-${month.padStart(2, '0')}` : year));
     if (labels.length !== expectedPeriods.length || new Set(labels).size !== labels.length
       || labels.some(label => !expectedPeriods.includes(label))) {
       throw invalid('missing, duplicate or unexpected period headers');
