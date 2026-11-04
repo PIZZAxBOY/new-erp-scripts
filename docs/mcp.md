@@ -154,4 +154,4 @@ npm run check:package
 npm pack
 ```
 
-`.tgz` 可通过 `npm install -g ./new-erp-mcp-0.5.0.tgz` 安装。发布文件不包含本机会话、项目配置、业务导出或测试数据。使用 `node test/check-package-privacy.js ./new-erp-mcp-0.5.0.tgz` 检查实际归档；检查只报告文件、行号和类别，不输出敏感值。
+`.tgz` 可通过 `npm install -g ./new-erp-mcp-0.6.0.tgz` 安装。发布文件不包含本机会话、项目配置、业务导出或测试数据。使用 `node test/check-package-privacy.js ./new-erp-mcp-0.6.0.tgz` 检查实际归档；检查只报告文件、行号和类别，不输出敏感值。

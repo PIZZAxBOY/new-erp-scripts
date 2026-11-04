@@ -1,6 +1,6 @@
 {
   "name": "new-erp-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Local MCP server and JavaScript API for querying new-erp",
   "publishConfig": {
     "access": "public",
