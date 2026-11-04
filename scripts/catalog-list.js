@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 const {
   asNumberOrNull,
   ArgumentError,
@@ -6,7 +5,6 @@ const {
   getBaseUrl,
   resolveToken,
   requestJson,
-  runCli,
 } = require('./shared.js');
 
 function parseIdSet(value, label) {
@@ -119,12 +117,3 @@ async function main(argsValue) {
 }
 
 module.exports = { main, args };
-
-if (require.main === module) {
-  runCli({
-    name: 'catalog-list',
-    description: '获取并展开 new-erp 产品类目。',
-    args,
-    func: main,
-  });
-}

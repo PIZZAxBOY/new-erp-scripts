@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -65,13 +64,9 @@ test('JSON timeouts cover both response headers and a streaming response body', 
   }
 });
 
-test('empty CLI results show the reason and exit with an integer code', () => {
-  const result = spawnSync(process.execPath, ['scripts/game-product-batch.js', '--skus', ',,,'], {
-    cwd: path.resolve(__dirname, '..'), encoding: 'utf8',
-  });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /No SKU input/);
-  assert.doesNotMatch(result.stderr, /TypeError|ERR_INVALID_ARG_TYPE|\n\s+at /);
+test('empty batch input reports a domain validation error', async () => {
+  const api = await import('../index.mjs');
+  await assert.rejects(api.gameProductBatch({ skus: ',,,' }), /No SKU input/);
 });
 
 test('both product searches expand a live parent category once per call', async (t) => {
@@ -98,7 +93,7 @@ test('sales task reuse excludes extra nonempty filters and accepts exact conditi
   const start = '2026-01-01 00:00:00', end = '2026-01-31 23:59:59';
   const query = { mode: 'domain', aggregate_by: 'platform', date_dimension: 'monthly',
     date_range: `${start} & ${end}`, index: 'sales-volume' };
-  const task = (params) => ({ id: 1, start_date: start, end_date: end,
+  const task = (params) => ({ id: 1, route_url: 'statistics/sales-volume/download-list', start_date: start, end_date: end,
     add_condition: JSON.stringify({ params }) });
   for (const filter of ['auction_site_type', 'auction_site', 'catalog_id', 'sku', 'product_type_cate']) {
     assert.equal(matchingTask([task({ ...query, [filter]: 'restricted' })], query, start, end), undefined);
@@ -321,7 +316,7 @@ test('all export downloads refuse cross-origin redirects', async (t) => {
     ['salesVolumeExport', '/statistics/sales-volume/download-list',
       { startDate: '2026-01-01', endDate: '2026-01-31', output: path.join(directory, 'sales.csv') }],
   ]) {
-    exportRoute = route; submitted = name === 'salesVolumeExport';
+    exportRoute = route; submitted = false;
     await assert.rejects(api[name]({ token: 'fake-audit-token', ...extra }));
   }
   assert.equal(leakedRequests, 0);
@@ -331,7 +326,7 @@ test('all export downloads refuse cross-origin redirects', async (t) => {
 test('all export polls abort within the remaining deadline instead of waiting a full request timeout', { timeout: 3000 }, async (t) => {
   const api = await import('../index.mjs');
   setEnv(t, { NEW_ERP_BASE_URL: 'https://audit.invalid' });
-  let clock = 0, route, calls, sales;
+  let clock = 0, route, calls;
   t.mock.method(Date, 'now', () => clock);
   const originalTimeout = global.setTimeout;
   t.mock.method(global, 'setTimeout', (callback, delay, ...args) => {
@@ -351,8 +346,8 @@ test('all export polls abort within the remaining deadline instead of waiting a 
     if (current === '/warehouse/packing-order/list') return json({ totalCount: 1, list: [{ id: 1, site_type: 'DEMO-DEST' }] });
     assert.equal(current, '/settings/download-center/index');
     calls++;
-    if (!sales && calls === 1) return json({ list: [] });
-    if (calls === (sales ? 1 : 2)) {
+    if (calls === 1) return json({ list: [] });
+    if (calls === 2) {
       clock = 20 * 60_000 - 25;
       return json({ list: [{ id: 'ours', status: '2', route_url: route.slice(1),
         start_date: start, end_date: end, field_selects: '{"basic":["sku","name_cn","price"]}',
@@ -370,8 +365,8 @@ test('all export polls abort within the remaining deadline instead of waiting a 
     ['salesVolumeExport', '/statistics/sales-volume/download-list',
       { startDate: '2026-01-01', endDate: '2026-01-31', output: path.join(os.tmpdir(), `erp-deadline-${process.pid}.csv`) }],
   ]) {
-    route = exportRoute; calls = 0; clock = 0; sales = name === 'salesVolumeExport';
+    route = exportRoute; calls = 0; clock = 0;
     await assert.rejects(api[name]({ token: 'fake-token', ...extra }), /failed/);
-    assert.equal(calls, sales ? 2 : 3);
+    assert.equal(calls, 2);
   }
 });

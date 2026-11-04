@@ -3,7 +3,6 @@ const fs = require('node:fs/promises');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
 const { test } = require('node:test');
 const { runBrowserLogin } = require('../scripts/login-browser.js');
 const { readSession, saveSession } = require('../scripts/local-session.js');
@@ -64,7 +63,7 @@ function post(url, fields, headers = {}) {
   }, body: new URLSearchParams(fields) });
 }
 
-test('browser CLI configures URL, account and password in one page without a TTY or secret output', async (t) => {
+test('browser login configures URL, account and password in one page without secret output', async (t) => {
   await isolate(t);
   process.env.NEW_ERP_PASSWORD = 'environment-password-must-not-be-used';
   const password = 'browser-password';
@@ -73,43 +72,25 @@ test('browser CLI configures URL, account and password in one page without a TTY
     assert.deepEqual(credentials, { username: 'browser-user', password });
     response.end(JSON.stringify({ code: 200, data: { token, user_id: 42 } }));
   });
-  const child = spawn(process.execPath, [path.join(__dirname, '../scripts/new-erp.js'), 'login', '--browser', '--open', 'false'],
-    { env: { ...process.env } });
-  let stdout = '', stderr = '', ready;
-  const url = new Promise((resolve, reject) => {
-    ready = resolve;
-    child.once('close', () => reject(new Error(`CLI exited before displaying a URL: ${stderr}`)));
-  });
-  child.stdout.on('data', (chunk) => { stdout += chunk; });
-  child.stderr.on('data', (chunk) => {
-    stderr += chunk;
-    const match = stderr.match(/http:\/\/127\.0\.0\.1:\d+\/login\/[a-f0-9]+/);
-    if (match) ready(match[0]);
-  });
-  const done = new Promise((resolve) => child.once('close', resolve));
-  t.after(async () => { if (child.exitCode === null) child.kill('SIGTERM'); await done; });
-  const address = await url;
-  const { csrf, html } = await form(address);
+  const login = await start(t);
+  const { csrf, html } = await form(login.url);
   for (const name of ['baseUrl', 'username', 'password']) assert.ok(html.includes(`name="${name}"`));
   assert.match(html, /type="password"/);
   assert.ok(!html.includes(process.env.NEW_ERP_PASSWORD));
-  const response = await post(address, { csrf, baseUrl, username: 'browser-user', password });
+  const response = await post(login.url, { csrf, baseUrl, username: 'browser-user', password });
   assert.equal(response.status, 200);
   const success = await response.text();
   assert.match(success, /登录成功/);
-  assert.equal(await done, 0, stderr);
-  const output = JSON.parse(stdout);
-  assert.equal(output.loggedIn, true);
-  assert.equal(output.baseUrl, baseUrl);
+  await login.done;
   assert.equal(readSession().token, token);
   const saved = await fs.readFile(process.env.NEW_ERP_SESSION_FILE, 'utf8');
   assert.ok(!saved.includes(password));
   if (process.platform !== 'win32') assert.equal((await fs.stat(process.env.NEW_ERP_SESSION_FILE)).mode & 0o777, 0o600);
-  for (const content of [stdout, stderr, html, success]) {
+  for (const content of [html, success]) {
     assert.ok(!content.includes(password));
     assert.ok(!content.includes(token));
   }
-  await assert.rejects(fetch(address));
+  await assert.rejects(fetch(login.url));
 });
 
 test('browser login rejects forged requests and escapes editable defaults without ERP calls', async (t) => {
@@ -146,27 +127,14 @@ test('browser login rejects forged requests and escapes editable defaults withou
   assert.equal(readSession(), null);
 });
 
-test('browser CLI can reopen configuration even when the previous session file is damaged', async (t) => {
+test('browser login can reopen configuration even when the previous session file is damaged', async (t) => {
   await isolate(t);
   await fs.writeFile(process.env.NEW_ERP_SESSION_FILE, '{broken', { mode: 0o600 });
-  for (const args of [[], ['--baseUrl', 'https://fixture.invalid']]) {
-    const child = spawn(process.execPath, [path.join(__dirname, '../scripts/new-erp.js'), 'login', '--browser', '--open', 'false', ...args], { env: { ...process.env } });
-    let stderr = '';
-    const url = new Promise((resolve, reject) => {
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk;
-        const match = stderr.match(/http:\/\/127\.0\.0\.1:\d+\/login\/[a-f0-9]+/);
-        if (match) resolve(match[0]);
-      });
-      child.once('close', () => reject(new Error(`No configuration page was opened: ${stderr}`)));
-    });
-    const done = new Promise((resolve) => child.once('close', resolve));
-    t.after(async () => { if (child.exitCode === null) child.kill('SIGTERM'); await done; });
-    const address = await url;
-    const { csrf } = await form(address);
-    assert.equal((await post(`${address}/cancel`, { csrf })).status, 200);
-    await done;
-  }
+  const login = await start(t);
+  const { csrf } = await form(login.url);
+  assert.equal((await post(`${login.url}/cancel`, { csrf })).status, 200);
+  await assert.rejects(login.done, /网页登录已取消/);
+  assert.throws(() => readSession(), /auth\.login/);
 });
 
 test('failed browser authentication preserves the old session and allows a clean retry', async (t) => {

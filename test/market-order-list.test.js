@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
 const http = require('node:http');
 const path = require('node:path');
 const { test } = require('node:test');
@@ -88,24 +87,4 @@ test('market orders use the read-only ERP route and retain raw records and metad
     mode = '';
   });
 
-  await t.test('CLI supports filters and fetchAll and emits JSON', async () => {
-    const child = spawn(process.execPath, ['scripts/new-erp.js', 'market-order-list', '--searchType=5',
-      '--searchValue=demo@example.invalid with spaces', '--fetchAll', '--pageSize', '2', '--token', 'test-token'], {
-      cwd: path.resolve(__dirname, '..'), env: process.env,
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    const code = await new Promise((resolve, reject) => {
-      child.on('error', reject);
-      child.on('close', resolve);
-    });
-    assert.equal(code, 0, stderr);
-    const result = JSON.parse(stdout);
-    assert.deepEqual(result.list, rows);
-    assert.equal(result.complete, true);
-    assert.equal(result.source.query.search_type, '5');
-    assert.equal(result.source.query.search_value, 'demo@example.invalid with spaces');
-  });
 });

@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-const { CommandExecutionError, requiredString, runCli } = require('./shared.js');
+const { CommandExecutionError, requiredString } = require('./shared.js');
 const { listArgs, enumValue, queryList } = require('./query.js');
 
 const args = [
@@ -24,4 +23,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-if (require.main === module) runCli({ name: 'inventory-list', description: '读取国内仓即时、占用、在途和预计可用库存；预计可用不等于已签收可装箱。', args, func: main });

@@ -1,11 +1,9 @@
-#!/usr/bin/env node
 const {
   ArgumentError,
   CommandExecutionError,
   resolveToken,
   positiveInteger,
   requiredString,
-  runCli,
 } = require('./shared.js');
 const { queryData, queryList } = require('./query.js');
 const { normalizeDateTime } = require('./sales-volume-ranking.js');
@@ -85,7 +83,3 @@ async function main(options) {
 }
 
 module.exports = { main, args };
-
-if (require.main === module) {
-  runCli({ name: 'supply-evidence', description: '按 SKU 查询销售计划、成品出入库及备货候选单据。', args, func: main });
-}

@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-const { CommandExecutionError, requiredString, runCli } = require('./shared.js');
+const { CommandExecutionError, requiredString } = require('./shared.js');
 const { authArgs, queryData } = require('./query.js');
 
 const args = [
@@ -20,4 +19,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-if (require.main === module) runCli({ name: 'packing-batch-detail', description: '读取批次原始SKU明细、BOM及版本字段，保留 provider 分组。', args, func: main });

@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-const { requiredString, runCli } = require('./shared.js');
+const { requiredString } = require('./shared.js');
 const { listArgs, enumValue, queryList } = require('./query.js');
 
 const args = [
@@ -19,4 +18,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-if (require.main === module) runCli({ name: 'outer-package-list', description: '读取外包装与各版本头程信息，包括箱规、数量、尺寸、重量及实时枚举。', args, func: main });

@@ -1,6 +1,5 @@
-#!/usr/bin/env node
 const {
-  ArgumentError, CommandExecutionError, getBaseUrl, requiredString, runCli,
+  ArgumentError, CommandExecutionError, getBaseUrl, requiredString,
 } = require('./shared.js');
 const { normalizeDateTime } = require('./sales-volume-ranking.js');
 const { listArgs, queryList, queryPages, selectionValue } = require('./query.js');
@@ -82,6 +81,3 @@ async function* pages(options = {}) {
 }
 
 module.exports = { main, pages, args, packingQuery, historyQuery, urlFor };
-if (require.main === module) {
-  runCli({ name: 'packing-order-list', description: '按总单号或完整历史范围查询装箱列表；支持 fetchAll，逐页消费使用 packing-order-pages。', args, func: main });
-}

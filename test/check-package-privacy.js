@@ -54,7 +54,7 @@ function checkPackage(archive) {
   }
   const findings = [];
   for (const file of files) {
-    const valid = /^package\/(?:index\.mjs|README\.md|package\.json|(?:scripts|skills|docs)\/.+)$/.test(file)
+    const valid = /^package\/(?:index\.mjs|README\.md|package\.json|(?:scripts|docs)\/.+)$/.test(file)
       && !file.split('/').includes('..');
     const sensitive = /(?:^|\/)(?:\.env(?:\..*)?|\.npmrc|config\.json|session\.json|credentials\.[^/]+)$|\.(?:pem|key|p12|pfx|sqlite3?|db|csv|xlsx?)$/i.test(file);
     if (!valid || sensitive) { findings.push({ file, kind: 'unexpected-or-sensitive-file' }); continue; }

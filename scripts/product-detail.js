@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 const {
   asNumberOrNull,
   ArgumentError,
@@ -8,7 +7,6 @@ const {
   resolveToken,
   positiveInteger,
   requestJson,
-  runCli,
 } = require('./shared.js');
 const { productsForAsin } = require('./product-asin.js');
 
@@ -125,12 +123,3 @@ async function main(options = {}) {
 }
 
 module.exports = { main, args };
-
-if (require.main === module) {
-  runCli({
-    name: 'product-detail',
-    description: '按产品 ID 或 ASIN 查询 ERP 产品详情与图片；ASIN 通过 ERP Listing 关联 SKU。',
-    args,
-    func: main,
-  });
-}

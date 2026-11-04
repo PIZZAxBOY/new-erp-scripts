@@ -169,7 +169,7 @@ async function runBrowserLogin({ defaults = {}, openBrowser = openLocalBrowser,
     signal?.addEventListener('abort', cancel, { once: true });
     process.once('SIGINT', cancel);
     process.once('SIGTERM', cancel);
-    timer = setTimeout(() => finish(new CommandExecutionError('登录页面已过期，请重新运行 new-erp login --browser')), timeoutMs);
+    timer = setTimeout(() => finish(new CommandExecutionError('登录页面已过期，请通过 erp_execute 的 auth.login 重新打开')), timeoutMs);
     server.listen(0, '127.0.0.1', () => {
       if (phase === 'settled') return;
       origin = `http://127.0.0.1:${server.address().port}`;

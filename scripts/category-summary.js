@@ -1,10 +1,8 @@
-#!/usr/bin/env node
 const {
   ArgumentError,
   CommandExecutionError,
   EmptyResultError,
   positiveInteger,
-  runCli,
 } = require('./shared.js');
 const {
   catalogNamesForIds,
@@ -154,12 +152,3 @@ async function main(argsValue) {
 }
 
 module.exports = { main, args };
-
-if (require.main === module) {
-  runCli({
-    name: 'category-summary',
-    description: '完整抓取并按 ERP 类目统计 SKU 销量行数。',
-    args,
-    func: main,
-  });
-}

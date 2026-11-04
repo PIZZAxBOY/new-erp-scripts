@@ -68,7 +68,7 @@ test('configuration errors never echo malformed JSON or embedded URL credentials
   const privateValue = 'fake-config-secret';
   await fs.writeFile(filename, `{"password":"${privateValue}", BROKEN`);
   assert.throws(() => shared.getTokenFromArgs({}), (error) => {
-    assert.match(error.message, /failed to read new-erp config/);
+    assert.match(error.message, /failed to read ERP config/);
     return !error.message.includes(privateValue);
   });
   process.env.NEW_ERP_BASE_URL = `https://demo-user:${privateValue}@test.invalid`;
@@ -88,14 +88,9 @@ test('configured credentials and common secret fields are masked in diagnostics'
   for (const secret of ['unknown secret', 'unknown-token', 'user:pass']) assert.ok(!redacted.includes(secret));
 });
 
-test('product detail requires an explicit ID or ASIN and CLI rejects positional secrets without echoing them', async (t) => {
+test('product detail requires an explicit ID or ASIN', async (t) => {
   await isolateConfig(t);
   const api = await import('../index.mjs');
   await assert.rejects(api.productDetail({ token: 'test-token' }), /exactly one of id or asin/);
-  const result = spawnSync(process.execPath, ['scripts/product-detail.js', 'fake-positional-secret'], {
-    cwd: path.resolve(__dirname, '..'), encoding: 'utf8',
-  });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /unexpected positional argument/);
-  assert.ok(!result.stderr.includes('fake-positional-secret'));
+  await assert.rejects(api.productDetail({ id: 1, asin: 'B012345678', token: 'test-token' }), /exactly one of id or asin/);
 });

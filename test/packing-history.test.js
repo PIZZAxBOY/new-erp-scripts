@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
 const http = require('node:http');
 const path = require('node:path');
 const { test } = require('node:test');
@@ -374,7 +373,7 @@ test('pageSize 100 uses 10 requests versus 50 at default 20 for the same 1000 fi
   t.diagnostic('本地固定1000箱：默认20条/页=50次请求；100条/页=10次，减少80%。仅验证请求数，不是ERP实测速率。');
 });
 
-test('packing pages CLI emits parseable per-page NDJSON and new read CLIs map options', async (t) => {
+test('packing page, delivery and detail APIs map options and preserve pagination', async (t) => {
   const server = http.createServer((request, response) => {
     const q = Object.fromEntries(new URL(request.url, 'http://local').searchParams);
     const data = q.r.endsWith('/packing-detail')
@@ -383,23 +382,21 @@ test('packing pages CLI emits parseable per-page NDJSON and new read CLIs map op
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
-  const run = (command, args) => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [
-      path.join(__dirname, '..', 'scripts', 'new-erp.js'), command, '--token', 'test-token', ...args,
-    ],
-      { env: { ...process.env, NEW_ERP_BASE_URL: `http://127.0.0.1:${server.address().port}` } });
-    let stdout = '', stderr = '';
-    child.stdout.on('data', (b) => { stdout += b; });
-    child.stderr.on('data', (b) => { stderr += b; });
-    child.on('error', reject);
-    child.on('close', (code) => { try { assert.equal(code, 0, stderr); resolve(stdout); } catch (error) { reject(error); } });
-  });
-  const output = await run('packing-order-pages', ['--packingNo', 'ORDER-1', '--stockFrom', 'DEMO-FROM', '--pageSize', '2']);
-  const pages = output.trim().split('\n').map((line) => JSON.parse(line));
-  assert.deepEqual(pages.map((p) => [p.page, p.list.length, p.complete]), [[1, 2, false], [2, 1, true]]);
-  const delivery = JSON.parse(await run('plan-delivery-order-list', ['--packingNo', 'ORDER-1', '--stockFrom', 'DEMO-FROM', '--fetchAll', '--pageSize', '2']));
-  assert.equal(delivery.list.length, 3);
-  assert.equal(delivery.complete, true);
-  const detail = JSON.parse(await run('packing-detail', ['--packingNumNo', 'BOX-1', '--stockFrom', 'DEMO-FROM', '--siteType', 'DEMO-DEST-UK', '--status', '0']));
-  assert.equal(detail.packing_num_no, 'BOX-1');
+  const previousUrl = process.env.NEW_ERP_BASE_URL;
+  process.env.NEW_ERP_BASE_URL = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const api = await import('../index.mjs');
+    const options = { packingNo: 'ORDER-1', stockFrom: 'DEMO-FROM', pageSize: 2, token: 'test-token' };
+    const pages = [];
+    for await (const page of api.packingOrderPages(options)) pages.push(page);
+    assert.deepEqual(pages.map((p) => [p.page, p.list.length, p.complete]), [[1, 2, false], [2, 1, true]]);
+    const delivery = await api.planDeliveryOrderList({ ...options, fetchAll: true });
+    assert.equal(delivery.list.length, 3);
+    assert.equal(delivery.complete, true);
+    const detail = await api.packingDetail({ packingNumNo: 'BOX-1', stockFrom: 'DEMO-FROM',
+      siteType: 'DEMO-DEST-UK', status: 0, token: 'test-token' });
+    assert.equal(detail.packing_num_no, 'BOX-1');
+  } finally {
+    if (previousUrl === undefined) delete process.env.NEW_ERP_BASE_URL; else process.env.NEW_ERP_BASE_URL = previousUrl;
+  }
 });

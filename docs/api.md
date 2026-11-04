@@ -1,166 +1,48 @@
-# JavaScript API 与数据口径
+# JavaScript API
 
-安装与配置见 [README](../README.md#javascript-api)。函数接收与 CLI 同名的选项对象，返回结果或抛出错误；配置从调用时的当前工作目录或环境变量读取。
-
-## 基础查询与客户端
-
-基础查询导出 `catalogList`、`categorySummary`、`gameProductList`、`gameProductBatch`、`productDetail`、`salesVolumeRanking`、`salesVolumeExport`、`supplyEvidence` 和 `stockingAssemblyInbound`。
-
-底层 ERP API 客户端通过 `erpClient` 导出，包含 `loginToken`、`getBaseUrl` 和 `requestJson`，供需要分页采集自定义 ERP 接口的项目复用。
-`exportGameProducts({ token, fields })` 使用 ERP 商品导出任务，等待下载中心完成并返回 `{ taskId, file }`；`file` 是 XLSX Buffer，字段默认是 SKU、品名、单价。导出文件不含商品 ID。
-
-`exportOuterPackages({ token, flowStatus })` 使用 ERP 外包装导出任务；`flowStatus` 为 1–5，返回 `{ taskId, file }`，其中 `file` 是 XLSX Buffer。
-
-`exportGameProducts({ disused: true })` 使用游戏类淘汰产品原生导出接口 `/products/game-product-list/disuse-product-export`；返回下载中心任务 ID 和 XLSX，默认字段为 SKU、品名、单价。
-
-## 按 ASIN 查询 ERP 商品
-
-`productDetail({ asin, token?, maxPages?, raw? })` 返回 ERP 商品详情数组；也支持原有的 `productDetail({ id })`。`id` 与 `asin` 必须二选一，在认证和网络请求前校验。ASIN 必须为10位字母或数字，去除首尾空白并转大写。
+API 保持原有 ES module 导出，选项以对象传递；业务参数、返回值和 ERP 口径不因 MCP 启动方式变化。安装与客户端配置见 [README](../README.md)。
 
 ```js
-import { productDetail } from 'new-erp-mcp';
+import { gameProductList, productDetail, marketOrderList, erpClient } from 'new-erp-mcp';
 
-const products = await productDetail({ asin: 'B012345678' });
-for (const product of products) {
-  console.log(product.sku, product.imageUrl, product.asinListings);
-}
+const products = await gameProductList({ sku: 'DEMO-SKU-001' });
+const detail = await productDetail({ asin: 'B012345678' });
+const orders = await marketOrderList({ searchType: 3, searchValue: 'DEMO-ORDER-ID' });
 ```
 
-示例 ASIN 需替换为实际值。CLI 为 `new-erp product-detail --asin B012345678`，MCP 为 `erp_execute({ operation: 'product_detail', params: { asin: 'B012345678' } })`，返回任务回执。MCP 覆盖本文件全部业务能力，参数按需发现，详见 [MCP 指南](./mcp.md)。
+## 配置与认证
 
-查询仅访问当前配置的 ERP：
+ERP 地址优先从 `NEW_ERP_BASE_URL` 读取，也可在项目工作目录的 `config.json` 中提供 `baseUrl`。直接 API 消费者可使用显式 `token`、环境变量或配置中的 token；必要时 `erpClient.loginToken` 可通过 ERP 登录 API 获取 token。不要把密码或 token 写入源码、日志、对话或版本库。
 
-1. `GET /sales/ling-xing/jy-amazon-selected-option` 获取 `other_select_name1_arr`，选择唯一标为 `ASIN` 的字段值，不硬编码字段编号。
-2. `GET /sales/ling-xing/jy-amazon-list-data` 使用 `other_select_name1` 和 `other_select_value1` 搜索，完整分页后按返回的 `asin` 精确核对。
-3. 按每个匹配的 ERP `sku` 查询 `/products/game-product-list/index`，完整分页后精确匹配 SKU；没有精确匹配时再查询 `/products/game-product-list/game-disuse-product-list`，取得停用商品的产品 ID。
-4. `/products/product-basic/detail` 查询详情，核对 ID 和 SKU 后返回，不将 Listing 行 ID 当作产品基础 ID。
+MCP API 调用不使用以上共享认证回退，始终绑定本机 `auth.login` 保存的私有会话。`erpClient` 导出 `loginToken`、`getBaseUrl` 与 `requestJson`，供自定义消费者复用。
 
-这些接口由 [ERP 前端模块](./erp-asin-contract.md) 确认。ASIN 查询覆盖该 ERP 的 `jyAmazon` Listing 数据范围；未自动混入其他 Listing 接口或外部 ERP 数据。接口权限由登录账号决定。
+## 业务 API
 
-ASIN 查询在原商品详情字段之外提供：
-
-| 字段 | 含义 |
+| 导出 | 用途 |
 | --- | --- |
-| `asin` | 规范化后的查询 ASIN。 |
-| `asinListings` | 此 ERP SKU 对应的全部精确匹配 Listing 原始记录，保留店铺、MSKU 等差异。 |
-| `asinSource` | Listing 查询路由、参数、采集时间、`totalCount/fetchedCount/complete/matchedCount`；不包含凭据。 |
+| `marketOrderList` | 只读查询市场订单 |
+| `catalogList` | 查询商品分类 |
+| `categorySummary` | 汇总分类销量 |
+| `gameProductBatch`、`gameProductList` | 商品批量查询与搜索 |
+| `productDetail` | 按商品 ID 或 ASIN 查询详情 |
+| `salesVolumeRanking`、`salesVolumeExport` | 销量排名与异步 CSV 导出 |
+| `supplyEvidence`、`stockingAssemblyInbound` | 查询计划/库存/货物流转凭证和拼装实际入库 |
+| `packingOrderList`、`packingOrderPages`、`packingDetail`、`exportPackingDetails` | 装箱列表、逐页遍历、单箱详情和 XLSX 导出 |
+| `planDeliveryOrderList`、`packingBatchList`、`packingBatchDetail` | 配货及批次明细 |
+| `outerPackageList`、`exportOuterPackages` | 外包装查询与 XLSX 导出 |
+| `inventoryList`、`logisticsChannelList`、`productDeclarationList`、`erpOptions` | 库存、物流、申报与枚举 |
+| `exportGameProducts` | 按选择字段导出商品 XLSX |
 
-`imageUrl` 保持 ERP 原始值；相对路径需结合 ERP 地址使用，空值不补造。ASIN 查询不保证存在主图或附图全集。重复店铺匹配同一产品时详情只读取一次；多个 SKU 或产品 ID 全部返回，不自动取首条。
+## 关键契约
 
-`maxPages` 默认100，最多1000，适用于每次 ASIN Listing 和 SKU 搜索；每页100条。列表截断、重复记录、总数变化、无法确认 ASIN、未配对 ERP SKU、无商品映射或详情 ID/SKU 不匹配均抛错，不返回部分结果，也不回退到公开亚马逊页面。`raw` 仍只附带商品详情原始 JSON。
+`marketOrderList(options)` 调用只读 `GET /index.php?r=/marketing/market-order/index`，支持 `searchType` 1–6、`searchValue`、项目、状态和交易 ID。`searchType` 缺省为 3；状态可为 0、负数或空值。原始响应保存在 `rawJson`，完整分页需显式设置 `fetchAll`，并检查 `complete` 与 `totalCount`。路由和字段由 ERP 接口文档及前端请求映射交叉确认；不创建、更新或导出订单。
 
-## 销量与单据
+`productDetail` 的 `id` 与 `asin` 必须且只能提供一个。ASIN 使用 ERP 商品搜索和详情流程；响应需核对 ASIN 与 SKU，不能假设模糊结果精确匹配。图片字段保留 ERP 原始路径，不保证是完整图库，详见 [ASIN 接口契约](./erp-asin-contract.md)。
 
-`salesVolumeRanking` 默认返回一个分页；`fetchAll: true` 获取完整范围并重新排序。指定 `sku` 时抓取全部匹配页，再按 SKU 精确过滤；`aggregateBy: 'sku-platform'` 按平台拆分。`categorySummary` 统计完整范围内的记录行数，不是销售数量。日期未带时间时，开始使用 `00:00:00`，结束使用 `23:59:59`；父级分类 ID 使用实时分类树展开。
+商品批量查询与销量排名校验分页元数据和预期行数；错误或短页不会被当成“未找到”或用于错误排名。部分 ERP 搜索本身模糊，`found` 只表示返回了结果，不表示精确 SKU 命中。分页数组要结合总数、筛选条件和完整性状态解释。
 
-`supplyEvidence({ source })` 支持 `plan`、`move`、`inventory`、`assembly`、`cargo`。单据查询默认只取一页；完整核对请传 `fetchAll: true`。`plan` 和 `move` 的数量来自单据明细，不使用列表行的 `num`；搬运计划不代表调库完成。`salesVolumeExport` 通过下载中心异步导出，保留 ERP 的 GBK CSV。
+销量 CSV 导出每次调用都会提交新的 ERP 导出请求，只选择本次提交后的新任务，并校验目标路由、完整查询条件和日期范围；不会复用历史成功或失败任务。调用方应提供唯一输出路径，并通过任务结果处理异步完成。
 
-`stockingAssemblyInbound` 按精确 SKU 和入库时间汇总备货拼装实际入库流水，用拼装单号核对生产任务。它只统计备货拼装，不包含采购进货或调库。
+`packingOrderPages(options)` 返回异步生成器；`fetchAll` 不适用于逐页 MCP 操作。`exportPackingDetails(options)` 返回任务结果及文件 buffer，可通过 `onProgress` 记录任务 ID 以便恢复。库存、计划、BOM、包装规格及重量单位保留 ERP 原始口径，不自动合并或猜测。API 的分页、校验和安全边界由函数参数元数据与实现定义，消费前先核对过滤条件和数据范围。
 
-销量导出只复用查询条件完全匹配且没有额外非空筛选的任务。商品、外包装和装箱导出拒绝多个匹配的新任务，并在识别任务后固定任务ID，避免后续轮询切换到其他任务。
-
-## 市场订单
-
-`marketOrderList(options)` / `new-erp market-order-list` 只读 `GET /index.php?r=/marketing/market-order/index`，不创建、更新或导出订单。路由与响应结构由 ERP 接口文档及前端 `evaluationOrder` 模块交叉确认，搜索字段依据前端请求映射；未使用生产凭据实测。
-
-| 选项 | ERP 参数与含义 |
-| --- | --- |
-| `searchValue` | `search_value`，搜索内容；有值时 `searchType` 默认为 `3` |
-| `searchType` | `search_type`：`1` 跟踪号、`2` 转单号、`3` 系统单号（订单 `id`）、`4` 红人编码、`5` 邮箱、`6` SKU；指定时必须提供非空 `searchValue` |
-| `project` | `auction_site`，ERP 项目代码 |
-| `status` | `order_status`，默认 `''` 查询全部状态；支持数字或数字字符串，包括 `0` 和负值；具体含义读取响应的 `order_status_map`，不推断状态 |
-| `transactionId` | `transaction_id`，交易号，不是系统单号 `id` 或平台单号 `item_no` |
-
-未传筛选条件时查询全部状态的第一页；匹配方式遵循 ERP 原生搜索规则，不额外承诺精确匹配或在本地过滤。支持标准 `page/pageSize/fetchAll/maxPages`：默认第1页20条、每页最多100条，全量从第1页开始，默认最多100页、上限1000页。返回 `{ list, totalCount, fetchedCount, complete, source, ...ERP元数据 }`，按订单 `id` 检查重复，缺少 ID、分页截断或总数变化时报错。空列表正常返回；认证或权限失败不当作空列表。
-
-订单原字段（含 `sku_qty`、`product_all_info`、`track_number`、`order_status` 等）及实时枚举保持原样，不展开 SKU、不转换金额或空值。ERP 元数据保留首页值，不重新计算汇总。订单可能包含买家地址、邮箱等个人信息，查询结果和 `source.query` 中的搜索内容对外分享前须脱敏。
-
-```js
-import { marketOrderList } from 'new-erp-mcp';
-
-const orders = await marketOrderList({ searchType: '6', searchValue: 'DEMO-SKU-001', fetchAll: true });
-const order = await marketOrderList({ searchValue: 'DEMO-ORDER-ID' });
-```
-
-## 装箱历史与批量导出
-
-`packingOrderList(options)` 支持两种范围：完整的 `project + warehouses + startDate + endDate`（扫描出库时间），或单独的精确总单号 `packingNo`。两种范围可叠加，`stockFrom` 只用于收窄，不能单独查询。传入任何历史范围字段时四项都必须完整；显式传入空的 `packingNo` 或 `stockFrom` 会报错，不忽略条件。`warehouses` 是完整目的仓名称数组或逗号分隔字符串，必须非空、不重复且无空白，允许指定非 FBA 仓。目的仓完整枚举由 `erpOptions({ source: 'packing' })` 的 `data.site_type_list` 提供，项目枚举为 `data.auction_site_list`。
-
-列表保留 `{ ...ERP数据, list, totalCount, query }`，补充 `page/pageSize/fetchedCount/complete/source`。默认单页20条，上限100；可用 `fetchAll: true` 从第1页收集所有行，或用异步生成器 `packingOrderPages(options)` 逐页消费。后者同样从第1页开始，省略 `fetchAll`，每次返回 `{ ...ERP数据, list: 当前页, totalCount, query, page, pageSize, fetchedCount: 累计行数, complete: 是否末页, source }`。空结果也返回一页。每页严格检查数量、总数稳定及重复箱号（无箱号时用ID），核对指定的总单号、发货仓和目的仓；错误直接抛出。
-
-两个全量入口都有 `maxPages` 保护（默认100，最多1000），第一请求发现超限即报错。逐页读取没有预取，消费方处理完当前页才发下一请求，提前结束迭代不再请求；内存保留当前页和本次查询的去重键，不保留全部箱记录。去重键随已读行数增长，受页数上限约束。大范围回放应按项目和月份拆分，显式用 `pageSize: 100`；单页 `page` 查询可用于调用方自己的检查点。`fetchAll` 会保留全部行，不适合大批历史回放。
-
-`exportPackingDetails({ project, warehouses, startDate, endDate, packingNo?, stockFrom?, status?, token?, output?, onProgress?, pollMs?, timeoutMs?, taskId? })` 优先使用 `/warehouse/packing-order/down-packing-detail` 原生批量导出。完整历史四项仍必填，`packingNo`、`stockFrom` 只能额外收窄；总单号映射为 `number_field=packing_num`、`number_value`。验证中仅传总单号和发货仓时 ERP 返回 `code=0, msg=请选择项目`，因此未开放仅总单号导出。
-
-默认返回 `{ taskId, file, boxes, query }`，`file` 为 XLSX Buffer，可直接交给解析器，不必落盘；`boxes` 为本次列表箱数。无数据时 `taskId=""`、`file=null`、`boxes=0`，不创建任务。传 `output` 时以不覆盖模式保存文件，返回 `{ taskId, output, bytes, boxes, query }`；空结果不创建空文件。轮询默认 `pollMs: 3000`、`timeoutMs: 1200000`（等待任务的时限，不含前置查询和文件下载）；兼容 `pollMs: 2000, timeoutMs: 600000`。两项必须为正整数。
-
-默认只匹配本次新任务，不复用旧快照。识别任务后，`onProgress` 先收到 `{ stage: 'waiting', boxes, taskId }`，可立即保存ID；下载前收到同形的 `stage: 'download'`。只有显式 `taskId` 才恢复轮询和下载，不创建新任务；恢复同样要求完整查询，逐次核对任务路由和全部筛选条件，拒绝额外非空条件、失败、消失或不匹配的任务。必要时串行查找下载中心后续页，最多1000页，每页100条，并受等待时限限制。显式恢复的是原任务快照，`boxes` 是恢复时的列表计数，调用方仍需核对文件内容；它不证明快照仍与当前业务一致。
-
-已出库箱优先从批量文件读取 SKU、数量和销售包装；仅为未出库箱或导出缺失的必要字段补读 `packingDetail`。需复核采集期间的SKU、包装变化时，可做两次新导出比较完整清单，调用时都不传 `taskId`。批量主数据已有 `exportGameProducts({ token, fields, disused? })`、`exportOuterPackages({ token, flowStatus })`，都返回 XLSX Buffer；前者保留 ERP 指定导出字段，不能替代包含全部版本的 `productDetail`，后者可按包装类型建立本地快照。
-
-```js
-import { packingOrderPages, exportPackingDetails } from 'new-erp-mcp';
-
-const selection = {
-  project: 'DEMO-PROJECT', warehouses: ['DEMO-DEST'],
-  startDate: '2026-07-01', endDate: '2026-09-30',
-};
-for await (const page of packingOrderPages({ ...selection, pageSize: 100 })) {
-  await consumePage(page); // 写入调用方的检查点或逐页处理
-}
-const detail = await exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER', stockFrom: 'DEMO-FROM',
-  pollMs: 2000, timeoutMs: 600000,
-  onProgress: async ({ taskId }) => { await saveTaskId(taskId); },
-});
-// 用保存的ID恢复：exportPackingDetails({ ...selection, packingNo: 'YOUR-ORDER', stockFrom: 'DEMO-FROM', taskId })
-```
-
-对应 CLI 为 `new-erp packing-order-list`、`new-erp packing-order-pages` 和 `new-erp packing-detail-export`。逐页命令每页输出一行 JSON（NDJSON），遵守标准输出背压；导出命令须传 `--output ./packing.xlsx`，可用 `--taskId` 恢复。导出保持 ERP 原文，包含 SKU、数量、渠道、箱实重kg和尺寸cm，不直接返回四种运输占比或货代最终结算重量。
-
-### 请求数验证
-
-请求数自检：`node --test --test-name-pattern='pageSize 100' test/packing-history.test.js`。固定1000箱的本地数据，默认每页20条发50次请求，每页100条发10次，减少80%，所得记录计数和ID校验和一致。按120000箱计算分别为6000次和1200次（需按月拆分满足分页上限）；这是请求数推算，不是ERP实测速率。
-
-## 配货、库存与包装
-
-以下接口均支持 ES module 导入，同时提供同名连字符 CLI（如 `packingBatchList` 对应 `new-erp packing-batch-list`）。只读取 ERP 数据，不创建或修改业务单据。
-
-| API | 必填选项 | 返回内容 |
-| --- | --- | --- |
-| `packingBatchList` | `stockFrom` | 配货批次列表，默认 `status: '5'`（已配货待装箱）；`status: ''` 查询全部。可按 `batchNo`、`warehouse` 搜索，`packingNo` 精确收窄总单。 |
-| `packingBatchDetail` | `stockFrom`、`batchNo` | 批次明细，保留原始 `provider` 分组、SKU、`num/can_num/now_num`、`version_number/bom_number`。这些数量和版本字段不自动互相替代。 |
-| `packingDetail` | `packingNumNo`、`stockFrom`、`status`、`siteType` | `/warehouse/transfer-order-packing/packing-detail` 原箱明细，返回 `{ ...ERP数据, source }`。`status` 取列表原值，允许0；核对箱号、发货仓及返回的目的仓，保留 `packing_sku`、尺寸和重量原值，不补造销售包装或BOM。 |
-| `planDeliveryOrderList` | `stockFrom`、`packingNo` | `/sales/plan-delivery-order/list` 历史配货明细，支持标准分页和 `fetchAll`；精确核对总单和发货仓，按ID检查重复，保留版本、跟单和已装数量。 |
-| `outerPackageList` | `flowStatus` | 1=外包装SKU、2=方装头程、3=异装头程、4=无BZ版本SKU、5=无BZ版本头程；可按 `sku`、`project` 搜索，保留所有返回版本、箱规、单箱数量和实时枚举。 |
-| `inventoryList` | `sku`、`stockCode` | 国内仓库存；默认 `groupBy: 'batch'` 保留库存批次/BOM；`groupBy: 'warehouse'` 按 SKU＋仓库汇总。精确核验返回的 SKU 和仓库。 |
-| `logisticsChannelList` | 无 | 渠道ID、运输方式、材积除数、状态等原始配置；不额外推断运价或限重。 |
-| `productDeclarationList` | 无 | 可按 `sku`、`country`（如 `US/IT`）搜索申报品名、材质、用途、HS编码、价格和币种。保留空白字段。 |
-| `erpOptions` | `source` | `inventory`=库存枚举，`packing`=装箱状态/目的仓/渠道等，`batchWarehouses`=配货发货仓列表；返回 `{ data, source }`。 |
-
-列表 API 返回 `{ list, totalCount, fetchedCount, complete, source, ...ERP元数据 }`，默认第1页20条。支持 `page`、`pageSize`（最多100）、`fetchAll` 和 `maxPages`（默认100，最多1000）。`fetchAll: true` 必须从第1页开始，校验每页数量及总数稳定；发生截断或总数变化时抛错。空结果返回空列表，不补造记录。`source` 包含路由、查询参数和采集时间，不包含认证信息；其他 ERP 元数据（如汇总值）保持首页原样，不作为包重新计算的全量汇总。
-
-分页出现重复记录时抛错，不静默去重；库存和外包装按完整记录检测重复，保留同一商品的不同批次、BOM和包装版本。`supplyEvidence` 和实际入库查询也使用相同的分页数量校验，入库数量缺失或空白时抛错，不补零。
-
-```js
-import { packingBatchList, packingBatchDetail, outerPackageList, inventoryList } from 'new-erp-mcp';
-
-const batches = await packingBatchList({ stockFrom: 'DEMO-FROM', fetchAll: true });
-if (batches.list.length) {
-  const detail = await packingBatchDetail({ stockFrom: 'DEMO-FROM', batchNo: batches.list[0].confirmed_no });
-}
-const packaging = await outerPackageList({ flowStatus: 2, sku: 'DEMO-SKU-003', fetchAll: true });
-const inventory = await inventoryList({ sku: 'DEMO-SKU-003', stockCode: 'DEMO-STOCK', fetchAll: true });
-```
-
-`productDetail` 在原有返回字段之外，直接提供 `fatherId`、`packingId`、`packWeight`、`trueWeight`、`productAttributeInfo`、`skuVersions`（全部版本）和 `exportLogisticsDeclaration`，不再需要开启 `raw` 才能读取这些数据。旧的 `firstVersion*` 字段保留；不能据此替具体批次选择版本。
-
-注意数据口径：
-
-- 库存 `stock_count.num` 是即时库存，`yg_can_stock_count.num` 是预计可用库存。后者包含预计入库、预计出库和预留量，不代表已签收可装箱数量。库存批次 `advice_id` 与配货批次 `confirmed_no` 属于不同标识。
-- 批次 `version_number`、BOM编号与商品 `pack_version` 的关联，以及父编号含义和国家适用规则，尚不能只凭字段名确定。
-- 外包装记录会包含禁用BOM和多版本，SKU搜索可能匹配多个SKU；调用方需按精确SKU、BOM状态、包装版本和箱型核对，不自动取首条。
-- 尺寸重量保留各来源原值。同一SKU在商品详情与外包装列表中的 `pure_weight` 可能使用不同单位，不能直接跨接口相加。箱内尺寸、空箱皮重、承重上限、混装规则及单位仍需业务核定。
-
-## 验证范围
-
-已验证配货批次、批次明细、外包装、库存、物流渠道和申报查询。真实 SKU、批次号、仓库名称及返回数量已省略；结果数量随业务变化，不能据此推断上游调拨已签收。搬运计划接口可能受账号权限限制，遇到403应报告权限缺口，不绕过权限。
+只读操作不会创建或修改业务单据。导出会在 ERP 下载中心创建任务并产生本地文件。请仅查询明确授权的数据，勿保存或分享未脱敏的原始业务响应。
