@@ -11,10 +11,10 @@ function sessionFilePath() {
   return path.join(directory, 'new-erp', 'session.json');
 }
 
-function readSession() {
+function readSession(file = sessionFilePath()) {
   let descriptor;
   try {
-    descriptor = fs.openSync(sessionFilePath(), fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    descriptor = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
     const stat = fs.fstatSync(descriptor);
     if (!stat.isFile() || (process.platform !== 'win32' && (stat.mode & 0o077))) {
       throw new Error('Session file must be a private regular file; authenticate again with auth.login through erp_execute');

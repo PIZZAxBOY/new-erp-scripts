@@ -1,6 +1,6 @@
 {
   "name": "new-erp-mcp",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Local MCP server and JavaScript API for querying new-erp",
   "publishConfig": {
     "access": "public",
@@ -8,7 +8,8 @@
   },
   "exports": "./index.mjs",
   "bin": {
-    "new-erp-mcp": "scripts/mcp.js"
+    "new-erp-mcp": "scripts/mcp.js",
+    "new-erp-mcp-http": "scripts/mcp-http.js"
   },
   "files": [
     "index.mjs",
