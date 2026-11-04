@@ -5,6 +5,7 @@ const {
   expandCatalogIds,
   fetchCatalogRows,
   getBaseUrl,
+  resolveImageUrl,
   resolveToken,
   positiveInteger,
   requestJson,
@@ -45,7 +46,7 @@ function productRow(row, meta, includeRaw) {
     saleIn7Days: asNumberOrNull(row?.sale_in_7_days),
     saleIn30Days: asNumberOrNull(row?.sale_in_30_days),
     totalCount: meta.totalCount,
-    imageUrl: row?.image_url ?? null,
+    imageUrl: resolveImageUrl(row?.full_image_url, row?.image_url),
     rawJson: includeRaw ? JSON.stringify(row) : null,
   };
 }

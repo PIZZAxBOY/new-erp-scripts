@@ -177,7 +177,7 @@ test('MCP browser login configures the current session and retries business work
   const work = payload(await execute(client, 'product_detail', { id: 7 }));
   assert.equal(work.state, 'succeeded');
   assert.equal(work.result.data.list[0].sku, 'FIXTURE-SKU');
-  assert.equal(payload(await execute(client, 'jobs.status', { jobId: work.jobId })).result.data.list[0].imageUrl, '/images/fixture.jpg');
+  assert.equal(payload(await execute(client, 'jobs.status', { jobId: work.jobId })).result.data.list[0].imageUrl, `http://127.0.0.1:${server.address().port}/images/fixture.jpg`);
   for (const value of [started, state, work]) for (const secret of [password, token]) assert.ok(!JSON.stringify(value).includes(secret));
   saveSession({ baseUrl: `http://127.0.0.1:${server.address().port}`, username: 'different-user', token: 'different-token', userId: 99 });
   const foreign = await execute(client, 'jobs.status', { jobId: work.jobId });
@@ -206,7 +206,7 @@ test('MCP product_detail searches ASIN inside the current user ERP and rejects c
   const result = await execute(client, 'product_detail', { asin });
   assert.equal(payload(result).state, 'succeeded');
   assert.equal(payload(result).result.data.list[0].asin, asin);
-  assert.equal(payload(result).result.data.list[0].imageUrl, '/images/sku-a.jpg');
+  assert.equal(payload(result).result.data.list[0].imageUrl, 'https://own-erp.invalid/images/sku-a.jpg');
   assert.equal(calls.length, 4);
   const invalid = await execute(client, 'product_detail', { id: 42, asin });
   assert.equal(invalid.isError, true);

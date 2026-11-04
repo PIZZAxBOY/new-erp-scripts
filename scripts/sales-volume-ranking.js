@@ -6,6 +6,7 @@ const {
   expandCatalogIds,
   fetchCatalogRows,
   getBaseUrl,
+  resolveImageUrl,
   resolveToken,
   positiveInteger,
   requestJson,
@@ -150,7 +151,7 @@ function outputRow(row, rank, totalCount, includeRaw) {
     countryCn: String(row?.country_cn ?? '').trim() || null,
     periodValues: JSON.stringify(statistics),
     totalCount,
-    imageUrl: String(row?.full_image_url ?? row?.image_url ?? '').trim() || null,
+    imageUrl: resolveImageUrl(row?.full_image_url, row?.image_url),
     rawJson: includeRaw ? JSON.stringify(row) : null,
   };
 }

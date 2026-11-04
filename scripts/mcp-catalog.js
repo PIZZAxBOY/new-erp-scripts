@@ -95,7 +95,7 @@ function requirementsFor(entry, args) {
   const scope = {
     game_product_list: 'ERP 搜索可能模糊匹配，需核对返回 SKU；结果仅为当前页。',
     game_product_batch: 'found 表示 ERP 搜索有返回，不保证精确 SKU；每个 SKU 只查一页，结合 querySku 和 totalCount 判断范围。',
-    product_detail: 'id 与 asin 必须二选一。ASIN 保留全部精确 SKU 和店铺匹配；imageUrl 是 ERP 原始路径，不保证有完整图库。',
+    product_detail: 'id 与 asin 必须二选一。ASIN 保留全部精确 SKU 和店铺匹配；imageUrl 返回完整 HTTP(S) 主图地址，无图为 null，不保证有完整图库。',
     inventory_list: '预计可用不代表实际签收；保留不同批次、BOM，不自动合并为单一版本。',
     supply_evidence: '计划不是完成凭证；数组不带分页完整性元数据，不推断全量。需要完整范围时显式使用 fetchAll。',
     stocking_assembly_inbound: '仅统计精确 SKU 关联的备货拼装实际入库凭证，不以计划量或预测库存代替。',

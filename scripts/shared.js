@@ -120,6 +120,20 @@ function withErpContext(context, operation) {
   return erpContext.run({ baseUrl: normalizeBaseUrl(context.baseUrl), token: context.token }, operation);
 }
 
+function resolveImageUrl(...values) {
+  for (const value of values) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    let url;
+    try {
+      url = new URL(value.trim(), `${getBaseUrl()}/`);
+    } catch {
+      continue;
+    }
+    if (/^https?:$/.test(url.protocol) && !url.username && !url.password) return url.href;
+  }
+  return null;
+}
+
 function requiredString(value, label) {
   const text = String(value ?? '').trim();
   if (!text) throw new ArgumentError(`${label} is required`);
@@ -363,6 +377,7 @@ module.exports = {
   requestJson,
   redactSensitiveText,
   requiredString,
+  resolveImageUrl,
   resolveToken,
   withErpContext,
 };

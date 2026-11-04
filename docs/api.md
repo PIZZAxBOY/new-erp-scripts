@@ -22,6 +22,14 @@ API 不会把凭据写入返回值、`source` 或错误文本；MCP 客户端应
 `salesVolumeRanking`（包括 `categorySummary`）会校验页码、页大小、总数、列表形状和本页行数。
 ERP 返回缺失或不一致的分页数据时直接抛错，不把损坏响应当作空结果。
 
+### 商品主图地址
+
+`gameProductList`、`gameProductBatch`、`productDetail`（ID/ASIN）和 `salesVolumeRanking` 的 `imageUrl` 返回完整 HTTP(S) 地址。
+优先使用 ERP 的 `full_image_url`，否则使用 `image_url`；相对路径根据当前调用的 ERP 基础地址解析（MCP 使用当前登录会话，不使用其他账号或环境中的地址）。已有绝对地址不重复拼接域名，`//` 开头的地址沿用 ERP 协议。
+无图、批量查询未找到或无有效 HTTP(S) 图片地址时为 `null`，不生成占位图片地址。支持 `raw` 的查询仍保留原始 JSON 中的图片字段。
+例如 ERP 地址为 `https://erp.example.com`，原字段为 `/images/S/SKU-A/main.jpg`，则 `imageUrl` 为 `https://erp.example.com/images/S/SKU-A/main.jpg`。
+完整地址不保证图片匿名可访问，也不代表包含附图全集。
+
 ## 按 ASIN 查询 ERP 商品
 
 `productDetail({ asin, token?, maxPages?, raw? })` 返回 ERP 商品详情数组；也支持原有的 `productDetail({ id })`。`id` 与 `asin` 必须二选一，在认证和网络请求前校验。ASIN 必须为10位字母或数字，去除首尾空白并转大写。
@@ -54,7 +62,7 @@ ASIN 查询在原商品详情字段之外提供：
 | `asinListings` | 此 ERP SKU 对应的全部精确匹配 Listing 原始记录，保留店铺、MSKU 等差异。 |
 | `asinSource` | Listing 查询路由、参数、采集时间、`totalCount/fetchedCount/complete/matchedCount`；不包含凭据。 |
 
-`imageUrl` 保持 ERP 原始值；相对路径需结合 ERP 地址使用，空值不补造。ASIN 查询不保证存在主图或附图全集。重复店铺匹配同一产品时详情只读取一次；多个 SKU 或产品 ID 全部返回，不自动取首条。
+`imageUrl` 按上述规则返回完整主图地址，空值不补造。ASIN 查询不保证存在主图或附图全集。重复店铺匹配同一产品时详情只读取一次；多个 SKU 或产品 ID 全部返回，不自动取首条。
 
 `maxPages` 默认100，最多1000，适用于每次 ASIN Listing 和 SKU 搜索；每页100条。列表截断、重复记录、总数变化、无法确认 ASIN、未配对 ERP SKU、无商品映射或详情 ID/SKU 不匹配均抛错，不返回部分结果，也不回退到公开亚马逊页面。`raw` 仍只附带商品详情原始 JSON。
 
