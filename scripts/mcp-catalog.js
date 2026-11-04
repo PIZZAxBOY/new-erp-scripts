@@ -4,13 +4,15 @@ const hiddenArgs = new Set(['username', 'password', 'token', 'output']);
 const registry = new Map([
   ['market_order_list', { name: 'market_order_list', description: '查询市场订单与订单原始字段', effect: 'read', script: 'market-order-list.js' }],
   ['catalog_list', { name: 'catalog_list', description: '查找商品分类与分类 ID', effect: 'read', script: 'catalog-list.js' }],
-  ['category_summary', { name: 'category_summary', description: '按分类统计匹配的 SKU 销售记录', effect: 'read', script: 'category-summary.js' }],
+  ['category_summary', { name: 'category_summary', description: '按分类统计 SKU 记录行数，不是销量或排名；自动抓取全部分页，成本高', effect: 'read', script: 'category-summary.js', keywords: ['分类', '类目', '计数', '记录数', '行数', '销售记录', 'sku记录', 'category', 'count'] }],
   ['game_product_batch', { name: 'game_product_batch', description: '批量查询多个商品 SKU', effect: 'read', script: 'game-product-batch.js' }],
   ['game_product_list', { name: 'game_product_list', description: '按 SKU、名称或分类搜索商品', effect: 'read', script: 'game-product-list.js' }],
   ['product_detail', { name: 'product_detail', description: '按商品 ID 或 ASIN 查询 ERP 商品详情与图片', effect: 'read', script: 'product-detail.js' }],
   ['product_images', { name: 'product_images', description: '按精确 SKU 查询 ERP 完整图集：橱窗图、小图、包装图、宣传图、样品图', effect: 'read', script: 'product-images.js' }],
-  ['sales_volume_ranking', { name: 'sales_volume_ranking', description: '查询日期范围内的 SKU 销量排名', effect: 'read', script: 'sales-volume-ranking.js' }],
-  ['sales_volume_export', { name: 'sales_volume_export', description: '异步导出销量 CSV', effect: 'export', script: 'sales-volume-export.js' }],
+  ['sales_volume_ranking', { name: 'sales_volume_ranking', description: '查询 SKU 销量/销售排名、热销 Top N；默认顶级物料，前100名内只需单页，无需分类汇总', effect: 'read', script: 'sales-volume-ranking.js', keywords: ['销售', '销量', '排名', '排行', '热销', 'top', 'sku', 'sales', 'ranking'],
+    examples: [{ description: '指定日期内 JY 顶级物料销量前 10 名；只读一页，不先查分类', operation: 'sales_volume_ranking', params: { startDate: '2026-10-01', endDate: '2026-10-31', auctionSite: 'JY', productTypeCate: '5', page: 1, pageSize: 10, fetchAll: false, sort: 'sales', order: 'desc' } }],
+  }],
+  ['sales_volume_export', { name: 'sales_volume_export', description: '异步导出销量 CSV；需要文件时使用，不用于快速 Top N 查询', effect: 'export', script: 'sales-volume-export.js', keywords: ['销售', '销量', '导出', 'csv', 'export'] }],
   ['supply_evidence', { name: 'supply_evidence', description: '查询计划、库存及货物流转凭证', effect: 'read', script: 'supply-evidence.js' }],
   ['stocking_assembly_inbound', { name: 'stocking_assembly_inbound', description: '统计备货拼装的实际入库数量', effect: 'read', script: 'stocking-assembly-inbound.js' }],
   ['packing_order_list', { name: 'packing_order_list', description: '查询装箱单列表', effect: 'read', script: 'packing-order-list.js' }],
@@ -52,9 +54,18 @@ function summary(entry) {
 
 function listOperations(query = '') {
   if (typeof query !== 'string') throw new TypeError('query must be a string');
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  return [...registry.values()].filter((entry) =>
-    words.every((word) => `${entry.name} ${entry.description}`.toLowerCase().includes(word))).map(summary);
+  const normalized = query.trim().toLowerCase();
+  if (registry.has(normalized)) return [summary(registry.get(normalized))];
+  const words = normalized.split(/\s+/).filter(Boolean);
+  return [...registry.values()].map((entry) => {
+    const keywords = entry.keywords || [];
+    const text = `${entry.name} ${entry.description} ${keywords.join(' ')}`.toLowerCase();
+    const matches = words.every((word) => text.includes(word));
+    const relevance = words.filter((word) => keywords.includes(word)).length;
+    return { entry, matches, relevance };
+  }).filter(({ matches }) => matches)
+    .sort((a, b) => b.relevance - a.relevance)
+    .map(({ entry }) => summary(entry));
 }
 
 function entryFor(name) {
@@ -94,6 +105,9 @@ function requirementsFor(entry, args) {
   }
   if (entry.name === 'export_game_products') requirements.push('fields accepts nonempty unique ERP field names; the three defaults are examples, not an allowlist.');
   const scope = {
+    category_summary: '仅统计各分类 SKU 销售记录行数，不累计销售件数，也不是 SKU 销量排名。无论 pageSize 多小都会读取全部匹配分页（默认每页 100 条、最多 100 页）；没有 Top N 或单页模式。仅在明确需要分类记录计数时使用；查询销量、热销或前 N 名请直接用 sales_volume_ranking，不要先运行此工具。',
+    sales_volume_ranking: '销量/热销/Top N 首选此工具，不需要先查 category_summary。startDate/endDate 必填；默认 productTypeCate="5"（顶级物料），显式 "6" 查询二级物料，显式 "" 查询全部类型。Top N（N<=100）：page=1、pageSize=N、fetchAll=false、sort=sales、order=desc；不传 sku 时只读一页，沿用 ERP 原生销量降序。指定 sku 会读取全部匹配页后精确过滤；fetchAll=true 才抓取全部范围并全局排序，其他排序需此模式。大于 100 的 Top N 按页读取并截取，不要为取前几名无谓全量抓取。结果来自 ERP 统计口径，不自行解释 mean 为日均销量。',
+    sales_volume_export: '需要 CSV 文件时使用，会创建 ERP 异步导出任务，不是低成本 Top N 查询；快速销量排名请用 sales_volume_ranking。此工具没有 productTypeCate 参数，不继承销量排名默认顶级物料的筛选。',
     game_product_list: 'ERP 搜索可能模糊匹配，需核对返回 SKU；结果仅为当前页。',
     game_product_batch: 'found 表示 ERP 搜索有返回，不保证精确 SKU；每个 SKU 只查一页，结合 querySku 和 totalCount 判断范围。',
     product_detail: 'id 与 asin 必须二选一。ASIN 保留全部精确 SKU 和店铺匹配；imageUrl 返回完整 HTTP(S) 主图地址，无图为 null，不保证有完整图库。',
@@ -113,7 +127,8 @@ function describeOperation(name) {
   const entry = entryFor(name);
   const { schema, args } = metadata(entry);
   const inputSchema = z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' });
-  return { ...summary(entry), inputSchema, requirements: requirementsFor(entry, args), execution: 'job' };
+  return { ...summary(entry), inputSchema, requirements: requirementsFor(entry, args), execution: 'job',
+    ...(entry.examples ? { examples: entry.examples } : {}) };
 }
 
 function getOperation(name) {

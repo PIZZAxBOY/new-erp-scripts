@@ -57,6 +57,36 @@ test('single-page sales ranking validates page metadata and expected row count b
   });
 });
 
+test('sales ranking defaults to top-level materials and Top 10 reads only one page', async (t) => {
+  const api = await import('../index.mjs');
+  const queries = [];
+  t.mock.method(global, 'fetch', async (input) => {
+    const url = new URL(input);
+    assert.equal(url.searchParams.get('r'), '/statistics/sales-volume/list');
+    queries.push(url.searchParams);
+    return json({ page: 1, pageSize: 10, totalCount: 6276,
+      list: Array.from({ length: 10 }, (_, i) => ({ sku: `SKU-${i}`, sales_sum: 100 - i })) });
+  });
+  await context(async () => {
+    for (const [options, expectedType] of [[{}, '5'], [{ productTypeCate: '6' }, '6'], [{ productTypeCate: '' }, null]]) {
+      const before = queries.length;
+      const rows = await api.salesVolumeRanking({ ...dates, auctionSite: 'JY', pageSize: 10, ...options });
+      assert.equal(queries.length, before + 1);
+      const query = queries.at(-1);
+      assert.equal(query.get('product_type_cate'), expectedType);
+      assert.equal(query.get('auction_site'), 'JY');
+      assert.equal(query.get('page'), '1');
+      assert.equal(query.get('pageSize'), '10');
+      assert.equal(rows.length, 10);
+      assert.equal(rows[0].sales, 100);
+      assert.equal(rows.at(-1).rank, 10);
+    }
+    const before = queries.length;
+    await assert.rejects(api.salesVolumeRanking({ ...dates, productTypeCate: 'invalid' }), /productTypeCate/);
+    assert.equal(queries.length, before);
+  });
+});
+
 for (const oldStatus of ['3', '4']) {
   test(`sales export creates a fresh task instead of reusing historical status=${oldStatus}`, async (t) => {
     const api = await import('../index.mjs');

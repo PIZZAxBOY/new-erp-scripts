@@ -8,13 +8,13 @@ const hidden = new Set(['username', 'password', 'token', 'output']);
 const business = [
   ['market_order_list', '查询市场订单与订单原始字段', 'read', 'market-order-list.js'],
   ['catalog_list', '查找商品分类与分类 ID', 'read', 'catalog-list.js'],
-  ['category_summary', '按分类统计匹配的 SKU 销售记录', 'read', 'category-summary.js'],
+  ['category_summary', '按分类统计 SKU 记录行数，不是销量或排名；自动抓取全部分页，成本高', 'read', 'category-summary.js'],
   ['game_product_batch', '批量查询多个商品 SKU', 'read', 'game-product-batch.js'],
   ['game_product_list', '按 SKU、名称或分类搜索商品', 'read', 'game-product-list.js'],
   ['product_detail', '按商品 ID 或 ASIN 查询 ERP 商品详情与图片', 'read', 'product-detail.js'],
   ['product_images', '按精确 SKU 查询 ERP 完整图集：橱窗图、小图、包装图、宣传图、样品图', 'read', 'product-images.js'],
-  ['sales_volume_ranking', '查询日期范围内的 SKU 销量排名', 'read', 'sales-volume-ranking.js'],
-  ['sales_volume_export', '异步导出销量 CSV', 'export', 'sales-volume-export.js'],
+  ['sales_volume_ranking', '查询 SKU 销量/销售排名、热销 Top N；默认顶级物料，前100名内只需单页，无需分类汇总', 'read', 'sales-volume-ranking.js'],
+  ['sales_volume_export', '异步导出销量 CSV；需要文件时使用，不用于快速 Top N 查询', 'export', 'sales-volume-export.js'],
   ['supply_evidence', '查询计划、库存及货物流转凭证', 'read', 'supply-evidence.js'],
   ['stocking_assembly_inbound', '统计备货拼装的实际入库数量', 'read', 'stocking-assembly-inbound.js'],
   ['packing_order_list', '查询装箱单列表', 'read', 'packing-order-list.js'],
@@ -56,6 +56,33 @@ test('the independent MCP registry preserves all business metadata and public AP
     assert.throws(() => getOperation(name), /Unknown ERP operation/);
     assert.throws(() => describeOperation(name), /Unknown ERP operation/);
   }
+});
+
+test('sales discovery prioritizes ranking intent and explains exhaustive category counts', () => {
+  for (const query of ['销售', '销量', '排名', '排行', '热销', 'TOP', 'SKU', '销售 排名', 'sku sales']) {
+    assert.equal(listOperations(query)[0].name, 'sales_volume_ranking', query);
+  }
+  for (const query of ['分类', '行数', '分类 计数', '销售 记录', 'category_summary']) {
+    assert.equal(listOperations(query)[0].name, 'category_summary', query);
+  }
+  assert.equal(listOperations('销售 导出')[0].name, 'sales_volume_export');
+  assert.deepEqual(listOperations('sales_volume_ranking').map(({ name }) => name), ['sales_volume_ranking']);
+  const category = describeOperation('category_summary');
+  assert.match(category.description, /不是销量或排名/);
+  assert.match(category.requirements.join('\n'), /全部匹配分页/);
+  assert.match(category.requirements.join('\n'), /不要先运行此工具/);
+  assert.equal(category.inputSchema.properties.productTypeCate.default, '');
+  const ranking = describeOperation('sales_volume_ranking');
+  assert.equal(ranking.inputSchema.properties.productTypeCate.default, '5');
+  assert.match(ranking.requirements.join('\n'), /指定 sku 会读取全部匹配页/);
+  const example = ranking.examples[0];
+  assert.equal(example.operation, ranking.name);
+  const params = getOperation(example.operation).schema.parse(example.params);
+  assert.equal(params.auctionSite, 'JY');
+  assert.equal(params.productTypeCate, '5');
+  assert.equal(params.pageSize, 10);
+  assert.equal(params.fetchAll, false);
+  assert.equal(params.sku, '');
 });
 
 test('all MCP schemas preserve every business argument primitive, default and omission', () => {

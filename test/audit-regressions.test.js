@@ -196,7 +196,9 @@ test('category summary counts all pages and rejects duplicated SKU rows', async 
   let duplicate = false;
   const pages = [];
   t.mock.method(global, 'fetch', async (input) => {
-    const page = Number(new URL(input).searchParams.get('page'));
+    const query = new URL(input).searchParams;
+    assert.equal(query.has('product_type_cate'), false);
+    const page = Number(query.get('page'));
     pages.push(page);
     const rows = [{ sku: 'ABC', auction_site: 'JY', catalog_name_cn: 'A' },
       { sku: 'DEF', auction_site: 'JY', catalog_name_cn: 'B' },

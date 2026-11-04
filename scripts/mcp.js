@@ -51,7 +51,7 @@ async function createServer(options = {}) {
   }
 
   server.registerTool('erp_discover', {
-    description: '按关键词查找 ERP 能力；指定 operation 获取该项参数。',
+    description: '按关键词查找 ERP 能力（如销售、销量、排名、热销）；指定 operation 获取参数、成本提示和示例。',
     inputSchema: z.strictObject({ query: z.string().trim().max(200).optional(), operation: z.string().trim().max(100).optional() }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, (input) => answer(() => {
