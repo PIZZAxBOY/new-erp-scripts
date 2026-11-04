@@ -142,6 +142,38 @@ test('discovery covers every business capability and helpers without loading log
   assert.equal(fetchMock.mock.callCount(), 0);
 });
 
+test('MCP discovers a cheap sales Top 10 example and honors material defaults and overrides', async (t) => {
+  await isolate(t);
+  const queries = [];
+  t.mock.method(global, 'fetch', async (input) => {
+    const query = new URL(input).searchParams;
+    assert.equal(query.get('r'), '/statistics/sales-volume/list');
+    assert.equal(query.get('auction_site'), 'JY');
+    assert.equal(query.get('page'), '1');
+    assert.equal(query.get('pageSize'), '10');
+    queries.push(query);
+    return new Response(JSON.stringify({ code: 200, data: { page: 1, pageSize: 10, totalCount: 6276,
+      list: Array.from({ length: 10 }, (_, i) => ({ sku: `SKU-${i}`, sales_sum: 100 - i })) } }));
+  });
+  const client = await memoryClient(t);
+  const found = payload(await client.callTool({ name: 'erp_discover', arguments: { query: '销售' } }));
+  assert.equal(found.operations[0].name, 'sales_volume_ranking');
+  const description = payload(await client.callTool({ name: 'erp_discover', arguments: { operation: found.operations[0].name } }));
+  assert.equal(description.inputSchema.properties.productTypeCate.default, '5');
+  assert.equal(queries.length, 0);
+  const { productTypeCate, ...params } = description.examples[0].params;
+  assert.equal(productTypeCate, '5');
+  saveSession({ baseUrl: 'https://own-erp.invalid', username: 'own-user', token: 'own-token', expireTime: 4102444800 });
+  for (const [overrides, expectedType] of [[{}, '5'], [{ productTypeCate: '6' }, '6'], [{ productTypeCate: '' }, null]]) {
+    const before = queries.length;
+    const result = payload(await execute(client, description.name, { ...params, ...overrides }));
+    assert.equal(result.state, 'succeeded');
+    assert.equal(result.result.data.list.length, 10);
+    assert.equal(queries.length, before + 1);
+    assert.equal(queries.at(-1).get('product_type_cate'), expectedType);
+  }
+});
+
 test('MCP browser login configures the current session and retries business work without restarting', async (t) => {
   await isolate(t);
   const client = await memoryClient(t);

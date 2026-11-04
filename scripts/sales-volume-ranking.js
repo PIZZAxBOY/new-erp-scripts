@@ -220,13 +220,13 @@ const args = [
   { name: 'sku', type: 'string', default: '', help: '精确匹配 SKU；ERP 是前缀查询，脚本会抓取后再过滤' },
   { name: 'aggregateBy', type: 'string', choices: ['sku', 'sku-platform'], default: 'sku', help: '按 SKU 或 SKU+平台汇总' },
   { name: 'catalogId', type: 'string', default: '', help: '品牌类目 catalog_id；单个父类目自动展开，多个 ID 用逗号/空格分隔' },
-  { name: 'productTypeCate', type: 'string', default: '', help: '产品类型：5/顶级物料，6/二级物料；留空不筛选' },
+  { name: 'productTypeCate', type: 'string', default: '5', help: '默认 5/顶级物料；传 6/二级物料，或显式空字符串查询全部类型' },
   { name: 'dateDimension', type: 'string', choices: ['monthly', 'yearly'], default: 'monthly', help: '统计维度' },
   { name: 'sort', type: 'string', choices: ['sales', 'mean', 'sku', 'name'], default: 'sales', help: '排序字段' },
   { name: 'order', type: 'string', choices: ['asc', 'desc'], default: 'desc', help: '排序方向' },
   { name: 'page', type: 'int', default: 1, help: '页码；默认只请求这一页' },
-  { name: 'pageSize', type: 'int', default: 20, help: '每页返回数量，1-100' },
-  { name: 'fetchAll', type: 'bool', default: false, help: '抓取全部页并做全局排序' },
+  { name: 'pageSize', type: 'int', default: 20, help: '每页返回数量，1-100；Top N 用 page=1、pageSize=N、fetchAll=false，不传 sku' },
+  { name: 'fetchAll', type: 'bool', default: false, help: '默认只读一页；true 抓取全部页并全局排序，成本高；指定 sku 时自动读取全部匹配页后精确过滤' },
   { name: 'maxPages', type: 'int', default: 100, help: '抓取全部页时的最大页数，1-1000' },
   { name: 'username', type: 'string', default: '', help: 'ERP 账号；也可用 NEW_ERP_USERNAME' },
   { name: 'password', type: 'string', default: '', help: 'ERP 密码；也可用 NEW_ERP_PASSWORD' },
@@ -259,7 +259,7 @@ async function main(argsValue) {
   if (!DATE_DIMENSIONS.has(dateDimension)) {
     throw new ArgumentError(`dateDimension must be one of: ${[...DATE_DIMENSIONS].join(', ')}`);
   }
-  const productTypeCate = normalizeProductTypeCate(argsValue.productTypeCate);
+  const productTypeCate = normalizeProductTypeCate(argsValue.productTypeCate === undefined ? '5' : argsValue.productTypeCate);
 
   const page = positiveInteger(argsValue.page, 1, 'page', 100000);
   const pageSize = positiveInteger(argsValue.pageSize, 20, 'pageSize', 100);

@@ -22,7 +22,7 @@ const args = [
   { name: 'catalogId', type: 'string', default: '', help: '类目 ID；单个父类目自动展开，多个 ID 用逗号/空格分隔' },
   { name: 'productTypeCate', type: 'string', default: '', help: '产品类型：5/顶级物料或 6/二级物料；留空查询全部' },
   { name: 'dateDimension', type: 'string', choices: ['monthly', 'yearly'], default: 'monthly', help: '统计维度' },
-  { name: 'pageSize', type: 'int', default: 100, help: '每页 SKU 销量行数，1-100' },
+  { name: 'pageSize', type: 'int', default: 100, help: '每次请求的记录行数，1-100；不是结果上限，仍会抓取全部页。销量前 N 名请用 sales_volume_ranking' },
   { name: 'maxPages', type: 'int', default: 100, help: '最大抓取页数，1-1000' },
   { name: 'concurrency', type: 'int', default: 1, help: '第 1 页后分页请求并发数，1-10' },
   { name: 'username', type: 'string', default: '', help: 'ERP 账号；也可用 NEW_ERP_USERNAME' },

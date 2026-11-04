@@ -105,9 +105,20 @@ ASIN 查询在原商品详情字段之外提供：
 
 ## 销量与单据
 
-`salesVolumeRanking` 默认返回一个分页；`fetchAll: true` 获取完整范围并重新排序。指定 `sku` 时抓取全部匹配页，再按 SKU 精确过滤；`aggregateBy: 'sku-platform'` 按平台拆分。`categorySummary` 统计完整范围内的记录行数，不是销售数量。日期未带时间时，开始使用 `00:00:00`，结束使用 `23:59:59`；父级分类 ID 使用实时分类树展开。
+`salesVolumeRanking` / MCP `sales_volume_ranking` 默认仅查询 **顶级物料**（`productTypeCate: '5'`），返回一个分页。显式传 `'6'` 查询二级物料，显式传 `''` 查询全部类型；省略参数不再等于全部类型。JavaScript API 与 MCP 默认值一致。
 
-`supplyEvidence({ source })` 支持 `plan`、`move`、`inventory`、`assembly`、`cargo`。单据查询默认只取一页；完整核对请传 `fetchAll: true`。`plan` 和 `move` 的数量来自单据明细，不使用列表行的 `num`；搬运计划不代表调库完成。`salesVolumeExport` 通过下载中心异步导出，保留 ERP 的 GBK CSV。
+Top N（N≤100）只需 `page: 1, pageSize: N, fetchAll: false`，不设置 `sku`，沿用 ERP 原生销量降序；无需先查询分类计数。`fetchAll: true` 获取完整范围并重新排序；其他排序必须使用全量模式。指定 `sku` 时自动抓取全部匹配页，再按 SKU 精确过滤；`aggregateBy: 'sku-platform'` 按平台拆分。日期未带时间时，开始使用 `00:00:00`，结束使用 `23:59:59`；父级分类 ID 使用实时分类树展开。
+
+```js
+const top10 = await salesVolumeRanking({
+  startDate: '2026-10-01', endDate: '2026-10-31', auctionSite: 'JY',
+  page: 1, pageSize: 10, fetchAll: false
+}); // 默认顶级物料，只读一个销量分页
+```
+
+`categorySummary` / `category_summary` 统计完整范围内各分类的 **SKU 记录行数，不是售出件数或 SKU 排名**。总是读取全部匹配分页，默认每页100条、最多100页；调小 `pageSize` 不是限制结果总数，反而增加请求次数。仅明确需要分类记录计数时使用。该工具默认仍查询全部产品类型，不继承销量排名的顶级物料默认值。
+
+`supplyEvidence({ source })` 支持 `plan`、`move`、`inventory`、`assembly`、`cargo`。单据查询默认只取一页；完整核对请传 `fetchAll: true`。`plan` 和 `move` 的数量来自单据明细，不使用列表行的 `num`；搬运计划不代表调库完成。`salesVolumeExport` 通过下载中心异步导出，保留 ERP 的 GBK CSV；仅需要文件时使用，不适合快速 Top N 查询，且没有 `productTypeCate` 参数，不继承排名默认筛选。
 
 `stockingAssemblyInbound` 按精确 SKU 和入库时间汇总备货拼装实际入库流水，用拼装单号核对生产任务。它只统计备货拼装，不包含采购进货或调库。
 

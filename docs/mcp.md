@@ -39,7 +39,7 @@ erp_execute({ operation: 'auth.login', params: {} })
 
 | 工具 | 用法 |
 | --- | --- |
-| `erp_discover` | `query` 按关键词找能力；`operation` 返回所选能力的参数；都省略时列出目录。 |
+| `erp_discover` | `query` 按关键词找能力；`operation` 返回参数、范围/成本提示及可用示例；都省略时列出目录。 |
 | `erp_execute` | 用 `operation`、`params` 执行；导出还需稳定的 `requestId`。 |
 
 目录覆盖现有 25 项业务能力：商品与分类、SKU 图集、ASIN 图片、销量与汇总、市场订单、库存与凭证、装箱与配货、外包装、物流与申报，以及全部导出。`auth.*` 和 `jobs.*` 也通过同一个入口按需调用。
@@ -58,6 +58,31 @@ ASIN 是示例值。其他业务参数以对应的 `erp_discover({ operation })`
 
 0.3 起，原四个直接 MCP 工具改为业务能力名称。例如原 `product_detail({ asin })` 改为上面的 `erp_execute` 调用。
 JavaScript API 保留原有入口；旧的终端子命令和随包技能已移除。
+
+### 销量工具选择与查询成本
+
+发现支持“销售 / 销量 / 排名 / 排行 / 热销 / Top / SKU”等关键词；销量相关查询优先返回 `sales_volume_ranking`。关键词以空格分隔时须全部匹配，显式用途关键词匹配优先于说明文字的偶然命中；精确 operation 名直接定位该项。不是自然语言语义搜索，未匹配时可缩短关键词或直接指定 operation。
+
+| 需求 | operation | 成本与范围 |
+| --- | --- | --- |
+| 销量排名、热销前 N 名 | `sales_volume_ranking` | 默认顶级物料；N≤100 时只读一页，无需先查分类 |
+| 指定 SKU 销量 | `sales_volume_ranking` | 设置 `sku` 会自动抓取全部匹配页，再精确过滤 |
+| 各分类的 SKU 记录行数 | `category_summary` | 不是销量/售出件数；总是抓取全部分页，默认每页100条。调小 pageSize 不会限制总条数 |
+| 需要销量 CSV 文件 | `sales_volume_export` | 创建异步 ERP 导出任务；不支持 productTypeCate 筛选，不继承排名默认值 |
+
+例如查询 JY 销量前10名，日期请按用户需求替换；默认只统计顶级物料，不必先运行 `category_summary`：
+
+```js
+erp_discover({ query: '销量 排名' })
+erp_discover({ operation: 'sales_volume_ranking' })
+erp_execute({ operation: 'sales_volume_ranking', params: {
+  startDate: '2026-10-01', endDate: '2026-10-31', auctionSite: 'JY',
+  productTypeCate: '5', page: 1, pageSize: 10, fetchAll: false,
+  sort: 'sales', order: 'desc'
+} })
+```
+
+`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。此默认值仅调整销量排名，分类记录计数保持原来的全部类型默认值。单页沿用 ERP 原生销量降序；其他排序需 `fetchAll: true` 后全局排序。前 N 名超过100条时可按页读取再截取，不要无谓抓取全量。指定 `sku` 会强制全匹配页读取，即使 `fetchAll: false`。
 
 ## 读取任务结果和导出文件
 
