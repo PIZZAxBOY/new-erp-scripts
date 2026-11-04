@@ -99,10 +99,10 @@ async function createServer(options = {}) {
     inputSchema: z.strictObject({ query: z.string().trim().max(200).optional(), operation: z.string().trim().max(100).optional() }),
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, (input) => answer(() => {
-      if (input.operation) {
-        if (input.query) throw new Error('query 与 operation 二选一');
-        if (options.remote && remoteAuthManagement.has(input.operation)) throw remoteAuthManagementError();
-        const helper = helpers.get(input.operation);
+    if (input.operation) {
+      if (input.query) throw new Error('query 与 operation 二选一');
+      if (options.remote && remoteAuthManagement.has(input.operation)) throw remoteAuthManagementError();
+      const helper = helpers.get(input.operation);
       if (helper) return { name: input.operation, description: helperDescription(input.operation, helper, options.remote),
         inputSchema: z.toJSONSchema(helper.schema, { io: 'input' }) };
       const description = catalog.describeOperation(input.operation);
