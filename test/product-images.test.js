@@ -144,7 +144,7 @@ test('SKU list, batch, detail and ranking expose full main image URLs without ch
       const [list] = await api.gameProductList({ sku: 'SKU-A', raw: true });
       const [batch] = await api.gameProductBatch({ skus: 'SKU-A' });
       const [detail] = await api.productDetail({ id: 42, raw: true });
-      const [ranking] = await api.salesVolumeRanking({ startDate: '2026-01-01', endDate: '2026-01-02', raw: true });
+      const [ranking] = await api.salesVolumeRanking({ source: 'list', startDate: '2026-01-01', endDate: '2026-01-02', raw: true });
       for (const row of [list, batch, detail, ranking]) assert.equal(row.imageUrl, expected);
       assert.equal(list.rawJson, original);
       assert.equal(ranking.rawJson, original);

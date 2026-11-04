@@ -65,8 +65,8 @@ JavaScript API 保留原有入口；旧的终端子命令和随包技能已移�
 
 | 需求 | operation | 成本与范围 |
 | --- | --- | --- |
-| 销量排名、热销前 N 名 | `sales_volume_ranking` | 默认顶级物料；N≤100 时只读一页，无需先查分类 |
-| 指定 SKU 销量 | `sales_volume_ranking` | 设置 `sku` 会自动抓取全部匹配页，再精确过滤 |
+| 销量排名、热销前 N 名 | `sales_volume_ranking` | 默认顶级物料；异步导出完整 CSV 后排序截取，无需先查分类 |
+| 指定 SKU 销量 | `sales_volume_ranking` | 导出匹配结果后精确过滤，保留平台维度 |
 | 各分类的 SKU 记录行数 | `category_summary` | 不是销量/售出件数；总是抓取全部分页，默认每页100条。调小 pageSize 不会限制总条数 |
 | 需要销量 CSV 文件 | `sales_volume_export` | 创建异步 ERP 导出任务；不支持 productTypeCate 筛选，不继承排名默认值 |
 
@@ -75,14 +75,18 @@ JavaScript API 保留原有入口；旧的终端子命令和随包技能已移�
 ```js
 erp_discover({ query: '销量 排名' })
 erp_discover({ operation: 'sales_volume_ranking' })
-erp_execute({ operation: 'sales_volume_ranking', params: {
+erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-sales-2026-10-top10', params: {
   startDate: '2026-10-01', endDate: '2026-10-31', auctionSite: 'JY',
   productTypeCate: '5', page: 1, pageSize: 10, fetchAll: false,
   sort: 'sales', order: 'desc'
 } })
 ```
 
-`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。此默认值仅调整销量排名，分类记录计数保持原来的全部类型默认值。单页沿用 ERP 原生销量降序；其他排序需 `fetchAll: true` 后全局排序。前 N 名超过100条时可按页读取再截取，不要无谓抓取全量。指定 `sku` 会强制全匹配页读取，即使 `fetchAll: false`。
+`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。分类记录计数保持全部类型默认值。排名默认 `source: 'export'`，先创建 ERP 导出任务，再解析完整 CSV 并全局排序，最后按 page/pageSize 截取；Top10 也会导出全量，不能承诺更快。`fetchAll: true` 返回全部排名，指定 `sku` 时精确过滤并返回全部匹配结果。
+
+通过 `jobs.status` 轮询同一个 jobId；进度包含提交、等待、下载、解析和上游 taskId。重试使用相同 requestId，不要每次轮询新建导出。最长等待约20分钟，CSV 上限64MiB；后台任务失败或 CSV 无法识别会报错，不返回部分排名。实际 CSV 表头尚未用生产导出验证。
+
+短范围需要旧单页接口时可显式设置 `source: 'list'`（MCP 仍要求 requestId）：单页沿用 ERP 原生销量降序，其他排序、SKU 精确查询需要完整分页，maxPages 只对 list 生效。不要先试长范围列表、超时后再重复提交导出。需要超过100名可用一次 fetchAll 并读取结果，避免为每页重复导出。
 
 ## 读取任务结果和导出文件
 
@@ -154,4 +158,4 @@ npm run check:package
 npm pack
 ```
 
-`.tgz` 可通过 `npm install -g ./new-erp-mcp-0.6.0.tgz` 安装。发布文件不包含本机会话、项目配置、业务导出或测试数据。使用 `node test/check-package-privacy.js ./new-erp-mcp-0.6.0.tgz` 检查实际归档；检查只报告文件、行号和类别，不输出敏感值。
+`.tgz` 可通过 `npm install -g ./new-erp-mcp-0.6.1.tgz` 安装。发布文件不包含本机会话、项目配置、业务导出或测试数据。使用 `node test/check-package-privacy.js ./new-erp-mcp-0.6.1.tgz` 检查实际归档；检查只报告文件、行号和类别，不输出敏感值。

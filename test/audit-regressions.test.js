@@ -183,7 +183,7 @@ test('sales pagination rejects overlapping SKU rows and keeps separate platforms
     return json({ totalCount: 2, list: [{ sku: 'ABC', auction_site: 'JY',
       auction_site_type: page === 1 ? 'Amazon' : 'Shopify', sales_sum: page }] });
   });
-  const options = { token: 'fake-token', startDate: '2026-01-01', endDate: '2026-01-31',
+  const options = { source: 'list', token: 'fake-token', startDate: '2026-01-01', endDate: '2026-01-31',
     pageSize: 1, fetchAll: true };
   await assert.rejects(api.salesVolumeRanking(options), /duplicate/);
   const platforms = await api.salesVolumeRanking({ ...options, aggregateBy: 'sku-platform' });

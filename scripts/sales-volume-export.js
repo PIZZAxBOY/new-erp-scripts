@@ -72,7 +72,15 @@ async function main(options) {
     index: 'sales-volume',
   };
   if (options.auctionSiteType) query.auction_site_type = String(options.auctionSiteType).trim();
+  const { file, taskId } = await downloadSalesCsv({ token, query, start: start.text, end: end.text });
+  await fs.writeFile(output, file, { flag: 'wx', mode: 0o600 });
+  return [{ taskId, output, bytes: file.length, encoding: 'GBK' }];
+}
+
+async function downloadSalesCsv({ token, query, start, end, onProgress }) {
+  const progress = async (stage, task) => onProgress?.({ stage, taskId: task ? String(task.id) : '', status: String(task?.status ?? '') });
   const deadline = Date.now() + 20 * 60 * 1000;
+  await progress('submitting');
   const previous = new Set((await tasks(token)).map((row) => String(row.id)));
   let submitError;
   try {
@@ -83,7 +91,7 @@ async function main(options) {
   } catch (error) { submitError = error; }
   let task;
   for (let attempt = 0; attempt < 10 && Date.now() < deadline; attempt += 1) {
-    task = matchingTask(await tasks(token, Math.max(1, Math.min(120_000, deadline - Date.now()))), query, start.text, end.text, previous);
+    task = matchingTask(await tasks(token, Math.max(1, Math.min(120_000, deadline - Date.now()))), query, start, end, previous);
     if (task) break;
     if (attempt < 9) await new Promise((resolve) => setTimeout(resolve, Math.min(2000, Math.max(0, deadline - Date.now()))));
   }
@@ -91,21 +99,34 @@ async function main(options) {
   while (String(task.status) !== '3') {
     if (String(task.status) === '4') throw new CommandExecutionError(`sales export task ${task.id} failed: ${redactSensitiveText(task.error_reason || 'unknown reason', [token])}`);
     if (Date.now() >= deadline) throw new CommandExecutionError(`sales export task ${task.id} still pending after 20 minutes`);
+    await progress('waiting', task);
     await new Promise((resolve) => setTimeout(resolve, Math.min(15000, Math.max(0, deadline - Date.now()))));
     if (Date.now() >= deadline) throw new CommandExecutionError(`sales export task ${task.id} still pending after 20 minutes`);
     task = (await tasks(token, Math.max(1, Math.min(120_000, deadline - Date.now()))))
       .find((row) => String(row.id) === String(task.id));
     if (!task) throw new CommandExecutionError('sales export task disappeared from download center');
   }
+  if (Date.now() >= deadline) throw new CommandExecutionError(`sales export task ${task.id} exceeded 20 minutes`);
+  await progress('downloading', task);
   const response = await fetch(urlFor('/settings/download-center/download-file', { id: task.id }), {
     headers: { token }, redirect: 'error', signal: AbortSignal.timeout(120000),
   });
   if (!response.ok || !/attachment/i.test(response.headers.get('content-disposition') || '')) {
     throw new CommandExecutionError(`sales export task ${task.id} did not return a CSV attachment: HTTP ${response.status}`);
   }
-  const file = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(output, file, { flag: 'wx', mode: 0o600 });
-  return [{ taskId: task.id, output, bytes: file.length, encoding: 'GBK' }];
+  const maxBytes = 64 * 1024 * 1024;
+  if (Number(response.headers.get('content-length')) > maxBytes) {
+    await response.body?.cancel();
+    throw new CommandExecutionError('sales export CSV exceeds 64 MiB; narrow the query');
+  }
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of response.body) {
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw new CommandExecutionError('sales export CSV exceeds 64 MiB; narrow the query');
+    chunks.push(chunk);
+  }
+  return { taskId: task.id, file: Buffer.concat(chunks) };
 }
 
-module.exports = { main, matchingTask, args };
+module.exports = { main, matchingTask, downloadSalesCsv, args };

@@ -9,8 +9,8 @@ const registry = new Map([
   ['game_product_list', { name: 'game_product_list', description: '按 SKU、名称或分类搜索商品', effect: 'read', script: 'game-product-list.js' }],
   ['product_detail', { name: 'product_detail', description: '按商品 ID 或 ASIN 查询 ERP 商品详情与图片', effect: 'read', script: 'product-detail.js' }],
   ['product_images', { name: 'product_images', description: '按精确 SKU 查询 ERP 完整图集：橱窗图、小图、包装图、宣传图、样品图', effect: 'read', script: 'product-images.js' }],
-  ['sales_volume_ranking', { name: 'sales_volume_ranking', description: '查询 SKU 销量/销售排名、热销 Top N；默认顶级物料，前100名内只需单页，无需分类汇总', effect: 'read', script: 'sales-volume-ranking.js', keywords: ['销售', '销量', '排名', '排行', '热销', 'top', 'sku', 'sales', 'ranking'],
-    examples: [{ description: '指定日期内 JY 顶级物料销量前 10 名；只读一页，不先查分类', operation: 'sales_volume_ranking', params: { startDate: '2026-10-01', endDate: '2026-10-31', auctionSite: 'JY', productTypeCate: '5', page: 1, pageSize: 10, fetchAll: false, sort: 'sales', order: 'desc' } }],
+  ['sales_volume_ranking', { name: 'sales_volume_ranking', description: '查询 SKU 销量/销售排名、热销 Top N；默认顶级物料，异步导出 CSV 后排名，需 requestId', effect: 'export', script: 'sales-volume-ranking.js', keywords: ['销售', '销量', '排名', '排行', '热销', 'top', 'sku', 'sales', 'ranking'],
+    examples: [{ description: 'JY 顶级物料销量前 10 名；完整导出后排序，轮询同一任务，不先查分类', operation: 'sales_volume_ranking', requestId: 'jy-sales-2026-10-top10', params: { source: 'export', startDate: '2026-10-01', endDate: '2026-10-31', auctionSite: 'JY', productTypeCate: '5', page: 1, pageSize: 10, fetchAll: false, sort: 'sales', order: 'desc' } }],
   }],
   ['sales_volume_export', { name: 'sales_volume_export', description: '异步导出销量 CSV；需要文件时使用，不用于快速 Top N 查询', effect: 'export', script: 'sales-volume-export.js', keywords: ['销售', '销量', '导出', 'csv', 'export'] }],
   ['supply_evidence', { name: 'supply_evidence', description: '查询计划、库存及货物流转凭证', effect: 'read', script: 'supply-evidence.js' }],
@@ -93,7 +93,9 @@ function metadata(entry) {
 
 function requirementsFor(entry, args) {
   const requirements = ['Requires a fresh saved personal ERP login. Business validators enforce required filters and valid values.'];
-  if (entry.effect === 'export') requirements.push('Requires a stable requestId. Files are saved to a server-managed private artifact.');
+  if (entry.effect === 'export') requirements.push(entry.name === 'sales_volume_ranking'
+    ? 'Requires a stable requestId (also for source=list). Returns ranking data; poll jobs.status with the same jobId. CSV is parsed in memory, not saved as an artifact.'
+    : 'Requires a stable requestId. Files are saved to a server-managed private artifact.');
   for (const arg of args.filter((field) => field.choices)) {
     requirements.push(`${arg.name}: ${arg.choices.join(', ')} (runtime aliases may also be accepted)`);
   }
@@ -106,7 +108,7 @@ function requirementsFor(entry, args) {
   if (entry.name === 'export_game_products') requirements.push('fields accepts nonempty unique ERP field names; the three defaults are examples, not an allowlist.');
   const scope = {
     category_summary: '仅统计各分类 SKU 销售记录行数，不累计销售件数，也不是 SKU 销量排名。无论 pageSize 多小都会读取全部匹配分页（默认每页 100 条、最多 100 页）；没有 Top N 或单页模式。仅在明确需要分类记录计数时使用；查询销量、热销或前 N 名请直接用 sales_volume_ranking，不要先运行此工具。',
-    sales_volume_ranking: '销量/热销/Top N 首选此工具，不需要先查 category_summary。startDate/endDate 必填；默认 productTypeCate="5"（顶级物料），显式 "6" 查询二级物料，显式 "" 查询全部类型。Top N（N<=100）：page=1、pageSize=N、fetchAll=false、sort=sales、order=desc；不传 sku 时只读一页，沿用 ERP 原生销量降序。指定 sku 会读取全部匹配页后精确过滤；fetchAll=true 才抓取全部范围并全局排序，其他排序需此模式。大于 100 的 Top N 按页读取并截取，不要为取前几名无谓全量抓取。结果来自 ERP 统计口径，不自行解释 mean 为日均销量。',
+    sales_volume_ranking: '销量/热销/Top N 首选此工具，不需要先查 category_summary。startDate/endDate 必填；默认 productTypeCate="5"（顶级物料），显式 "6" 查询二级物料，显式 "" 查询全部类型。默认 source=export：只提交一次异步导出，等待下载完整 CSV 后排序；Top N（N<=100）用 page=1、pageSize=N、fetchAll=false 截取结果，不减少上游导出量。fetchAll=true 返回全部排名，指定 sku 时精确过滤并返回全部匹配结果。长时间范围不要先调用列表接口；异步导出仍可能排队或失败，最长等待约20分钟，CSV上限64MiB，不能保证耗时。可显式 source=list 使用旧列表模式：单页仅支持销量降序，其他排序或 sku 查询需完整分页，maxPages 仅限制 list。MCP 用稳定 requestId 提交并轮询同一 jobId，勿反复创建任务。不猜测缺失销量、未知 CSV 表头或 mean 口径。',
     sales_volume_export: '需要 CSV 文件时使用，会创建 ERP 异步导出任务，不是低成本 Top N 查询；快速销量排名请用 sales_volume_ranking。此工具没有 productTypeCate 参数，不继承销量排名默认顶级物料的筛选。',
     game_product_list: 'ERP 搜索可能模糊匹配，需核对返回 SKU；结果仅为当前页。',
     game_product_batch: 'found 表示 ERP 搜索有返回，不保证精确 SKU；每个 SKU 只查一页，结合 querySku 和 totalCount 判断范围。',
@@ -145,7 +147,7 @@ function getOperation(name) {
           throw new TypeError('Export requires a server-owned outputPath');
         }
         options.output = hooks.outputPath;
-        if (entry.name === 'packing_detail_export') options.onProgress = hooks.onProgress;
+        if (['packing_detail_export', 'sales_volume_ranking'].includes(entry.name)) options.onProgress = hooks.onProgress;
       }
       return implementation[entry.method || (entry.effect === 'stream' ? 'pages' : 'main')](options);
     },
