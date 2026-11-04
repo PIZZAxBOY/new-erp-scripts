@@ -77,18 +77,22 @@ async function main(options) {
   return [{ taskId, output, bytes: file.length, encoding: 'GBK' }];
 }
 
-async function downloadSalesCsv({ token, query, start, end, onProgress }) {
+async function downloadSalesCsv({ token, query, start, end, onProgress, beforeSubmit }) {
   const progress = async (stage, task) => onProgress?.({ stage, taskId: task ? String(task.id) : '', status: String(task?.status ?? '') });
   const deadline = Date.now() + 20 * 60 * 1000;
   await progress('submitting');
   const previous = new Set((await tasks(token)).map((row) => String(row.id)));
+  await beforeSubmit?.();
   let submitError;
   try {
-    await requestJson(urlFor(exportRoute, query), {
+    const submitted = await requestJson(urlFor(exportRoute, query), {
       label: 'new-erp sales export', headers: { token },
       timeoutMs: Math.max(1, Math.min(120_000, deadline - Date.now())),
     });
-  } catch (error) { submitError = error; }
+    if (/已存在下载任务|请勿重复/.test(String(submitted?.msg || submitted?.data?.msg || ''))) {
+      throw Object.assign(new CommandExecutionError('ERP already has a running export; no new task was created'), { code: 'EXPORT_BUSY' });
+    }
+  } catch (error) { if (error.code === 'EXPORT_BUSY') throw error; submitError = error; }
   let task;
   for (let attempt = 0; attempt < 10 && Date.now() < deadline; attempt += 1) {
     task = matchingTask(await tasks(token, Math.max(1, Math.min(120_000, deadline - Date.now()))), query, start, end, previous);
@@ -126,7 +130,7 @@ async function downloadSalesCsv({ token, query, start, end, onProgress }) {
     if (bytes > maxBytes) throw new CommandExecutionError('sales export CSV exceeds 64 MiB; narrow the query');
     chunks.push(chunk);
   }
-  return { taskId: task.id, file: Buffer.concat(chunks) };
+  return { taskId: task.id, file: Buffer.concat(chunks), fileIdentity: task.down_file || null };
 }
 
 module.exports = { main, matchingTask, downloadSalesCsv, args };

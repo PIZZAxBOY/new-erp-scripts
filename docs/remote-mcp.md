@@ -6,7 +6,7 @@
 
 这是单所有者个人服务，不是多租户服务，也不使用 OAuth。客户端只需配置管理员提供的 HTTPS MCP URL 和访问令牌，不需要、也不能通过 MCP 添加 ERP 账号、登录或登出。全部 ERP 会话由主机管理员管理；一个高熵 Bearer 令牌可访问此服务配置的全部 ERP 账号和数据。只把令牌交给获授权的客户端，不要放入查询参数、对话、日志或代码库。
 
-客户端连接 URL 形如管理员提供的 `https://PUBLIC_HOSTNAME/mcp`，并在每个 MCP 请求中发送：
+客户端连接 URL 形如管理员提供的 `https://example.com/mcp`（示例域名，请替换为管理员提供的地址），并在每个 MCP 请求中发送：
 
 ```http
 Authorization: Bearer <由管理员提供的访问令牌>
@@ -22,7 +22,7 @@ Authorization: Bearer <由管理员提供的访问令牌>
 
 ```json
 {
-  "publicUrl": "https://PUBLIC_HOSTNAME/mcp",
+  "publicUrl": "https://example.com/mcp",
   "port": 8443,
   "tokenFile": "/ABSOLUTE/PRIVATE/PATH/mcp-token",
   "dataDir": "/ABSOLUTE/PRIVATE/PATH/mcp-data",

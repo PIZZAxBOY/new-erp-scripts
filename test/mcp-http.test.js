@@ -145,6 +145,13 @@ test('HTTP MCP handshake, discovery, remote auth restrictions, and jobs share ru
   assert.ok(names.includes('auth.status'));
   assert.equal(names.includes('auth.login'), false);
   assert.equal(names.includes('auth.logout'), false);
+  const business = toolPayload(await client.callTool({
+    name: 'erp_discover',
+    arguments: { operation: 'product_detail' },
+  }));
+  const requirements = business.requirements.join(' ');
+  assert.match(requirements, /service administrator/);
+  assert.doesNotMatch(requirements, /saved personal ERP login/);
   assert.equal(harness.calls.login, 0);
   assert.equal(harness.calls.logout, 0);
 

@@ -289,9 +289,12 @@ async function main(argsValue) {
       sku, catalog_id: catalogId, product_type_cate: productTypeCate })) {
       if (value) query[key] = value;
     }
-    const { file, taskId } = await downloadSalesCsv({ token, query, start: start.text, end: end.text, onProgress: argsValue.onProgress });
+    const exported = argsValue.loadExport
+      ? await argsValue.loadExport({ token, query, start: start.text, end: end.text, onProgress: argsValue.onProgress })
+      : await downloadSalesCsv({ token, query, start: start.text, end: end.text, onProgress: argsValue.onProgress });
+    const { taskId } = exported;
     await argsValue.onProgress?.({ stage: 'parsing', taskId: String(taskId) });
-    const allRows = parseSalesCsv(file, { aggregateBy });
+    const allRows = exported.rows || parseSalesCsv(exported.file, { aggregateBy });
     if (sort === 'mean' && allRows.some((row) => row.mean === null)) {
       throw new CommandExecutionError('sales CSV is missing mean values required for mean sorting');
     }
@@ -309,7 +312,7 @@ async function main(argsValue) {
     const selected = fetchAll ? rows : rows.slice(offset, offset + pageSize);
     if (!selected.length) throw new EmptyResultError('sales-volume-ranking', 'No SKU sales found in the requested CSV result page');
     return selected.map((row, index) => ({ ...outputRow(row, offset + index + 1, rows.length, Boolean(argsValue.raw)),
-      source: 'export', taskId: String(taskId) }));
+      source: 'export', taskId: String(taskId), ...(exported.parts ? { exportParts: exported.parts } : {}) }));
   }
   const firstPage = await fetchSalesPage({
     token,

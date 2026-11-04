@@ -501,9 +501,19 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const stop = () => { void service.close().catch(() => { process.exitCode = 1; }); };
-  process.once('SIGINT', stop);
-  process.once('SIGTERM', stop);
+  let stopping = false;
+  const stop = async signal => {
+    if (stopping) return;
+    stopping = true;
+    try {
+      await service.close();
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    } catch {
+      process.exit(1);
+    }
+  };
+  process.once('SIGINT', () => { void stop('SIGINT'); });
+  process.once('SIGTERM', () => { void stop('SIGTERM'); });
 }
 
 module.exports = {
