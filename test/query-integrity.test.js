@@ -49,15 +49,15 @@ test('single-page sales ranking validates page metadata and expected row count b
       { page: 2, pageSize: 10, totalCount: 4, list: rows },
       { page: 2, pageSize: 2, totalCount: 4, list: rows.slice(0, 1) },
       { page: 2, pageSize: 2, totalCount: null, list: rows },
-    ]) await assert.rejects(api.salesVolumeRanking({ ...dates, page: 2, pageSize: 2 }), /pagination/);
+    ]) await assert.rejects(api.salesVolumeRanking({ ...dates, source: 'list', page: 2, pageSize: 2 }), /pagination/);
     data = { page: 2, pageSize: 2, totalCount: 4, list: rows };
-    assert.deepEqual((await api.salesVolumeRanking({ ...dates, page: 2, pageSize: 2 })).map(row => row.rank), [3, 4]);
+    assert.deepEqual((await api.salesVolumeRanking({ ...dates, source: 'list', page: 2, pageSize: 2 })).map(row => row.rank), [3, 4]);
     data = { totalCount: 3, list: rows.slice(0, 1) };
-    assert.deepEqual((await api.salesVolumeRanking({ ...dates, page: 2, pageSize: 2 })).map(row => row.rank), [3]);
+    assert.deepEqual((await api.salesVolumeRanking({ ...dates, source: 'list', page: 2, pageSize: 2 })).map(row => row.rank), [3]);
   });
 });
 
-test('sales ranking defaults to top-level materials and Top 10 reads only one page', async (t) => {
+test('explicit list sales ranking defaults to top-level materials and Top 10 reads only one page', async (t) => {
   const api = await import('../index.mjs');
   const queries = [];
   t.mock.method(global, 'fetch', async (input) => {
@@ -70,7 +70,7 @@ test('sales ranking defaults to top-level materials and Top 10 reads only one pa
   await context(async () => {
     for (const [options, expectedType] of [[{}, '5'], [{ productTypeCate: '6' }, '6'], [{ productTypeCate: '' }, null]]) {
       const before = queries.length;
-      const rows = await api.salesVolumeRanking({ ...dates, auctionSite: 'JY', pageSize: 10, ...options });
+      const rows = await api.salesVolumeRanking({ ...dates, source: 'list', auctionSite: 'JY', pageSize: 10, ...options });
       assert.equal(queries.length, before + 1);
       const query = queries.at(-1);
       assert.equal(query.get('product_type_cate'), expectedType);

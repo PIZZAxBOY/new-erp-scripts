@@ -105,15 +105,21 @@ ASIN 查询在原商品详情字段之外提供：
 
 ## 销量与单据
 
-`salesVolumeRanking` / MCP `sales_volume_ranking` 默认仅查询 **顶级物料**（`productTypeCate: '5'`），返回一个分页。显式传 `'6'` 查询二级物料，显式传 `''` 查询全部类型；省略参数不再等于全部类型。JavaScript API 与 MCP 默认值一致。
+`salesVolumeRanking` / MCP `sales_volume_ranking` 默认仅查询 **顶级物料**（`productTypeCate: '5'`），使用 `source: 'export'` 异步导出 CSV，在本地全局排序后返回一个分页。显式传 `'6'` 查询二级物料，显式传 `''` 查询全部类型；省略参数不等于全部类型。JavaScript API 与 MCP 默认值一致。
 
-Top N（N≤100）只需 `page: 1, pageSize: N, fetchAll: false`，不设置 `sku`，沿用 ERP 原生销量降序；无需先查询分类计数。`fetchAll: true` 获取完整范围并重新排序；其他排序必须使用全量模式。指定 `sku` 时自动抓取全部匹配页，再按 SKU 精确过滤；`aggregateBy: 'sku-platform'` 按平台拆分。日期未带时间时，开始使用 `00:00:00`，结束使用 `23:59:59`；父级分类 ID 使用实时分类树展开。
+Top N（N≤100）使用 `page: 1, pageSize: N, fetchAll: false`，无需先查询分类计数。**默认仍需完整导出，pageSize 仅控制最终返回条数，不减少 ERP 统计量。** `fetchAll: true` 返回全部结果；指定 `sku` 后精确过滤并返回全部匹配结果。`aggregateBy: 'sku-platform'` 保留平台拆分，不自行跨平台求和。日期未带时间时，开始使用 `00:00:00`，结束使用 `23:59:59`；父级分类 ID 使用实时分类树展开。
+
+`source: 'list'` 显式使用旧分页接口：单页只支持销量降序，其他排序、指定 SKU 或 `fetchAll: true` 需要完整分页；`maxPages` 仅限制该模式。长时间范围优先用默认导出，避免先等待列表超时。导出最长等待约20分钟，下载超时120秒、上限64MiB；并不保证后台统计不会失败。JS API 的 Promise 等到完成；MCP 要求稳定 `requestId`（包括显式 list），返回任务回执供 `jobs.status` 轮询，不要重复提交新任务。
+
+CSV 支持 GBK 和 UTF-8（含 BOM），严格校验 SKU、总销量列、引号、列数、数值和重复行；不能识别或缺失销量时报错，不用分期列猜测总数。`sku-platform` 还要求平台列。保留 CSV 中的 ERP 均值和分期数据，缺少可选字段时为 null/空数组，不将均值解释为日均。排名沿用原有输出字段，增加 `source: 'export'` 和 `taskId`；`raw: true` 包含 CSV 原始单元格。CSV 在内存解析，不落盘；较大的 MCP 排名结果按现有规则保存为私有 JSON 工件。
+
+接口筛选依据 ERP 前端的 `salesStatistics` 模块：`downloadBySearch` 将与列表相同的查询参数传入 `/statistics/sales-volume/download-list`，只删除 `page` 和 `pageSize`。目前 CSV 解析测试使用合成样本，**尚未用真实导出文件验证表头**；未知表头会明确报错，而不是返回可能错误的排名。
 
 ```js
 const top10 = await salesVolumeRanking({
   startDate: '2026-10-01', endDate: '2026-10-31', auctionSite: 'JY',
   page: 1, pageSize: 10, fetchAll: false
-}); // 默认顶级物料，只读一个销量分页
+}); // 默认顶级物料，完整导出后返回前10名
 ```
 
 `categorySummary` / `category_summary` 统计完整范围内各分类的 **SKU 记录行数，不是售出件数或 SKU 排名**。总是读取全部匹配分页，默认每页100条、最多100页；调小 `pageSize` 不是限制结果总数，反而增加请求次数。仅明确需要分类记录计数时使用。该工具默认仍查询全部产品类型，不继承销量排名的顶级物料默认值。
