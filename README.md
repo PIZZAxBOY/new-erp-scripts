@@ -48,11 +48,19 @@ codex mcp add new-erp -- new-erp-mcp
 {"operation":"product_detail"}
 ```
 
-发现结果包含 24 项业务操作和 7 项本机辅助操作。业务能力覆盖商品与分类、ASIN、销量、市场订单、库存、备货、装箱、配货、物流与导出。辅助操作为 `auth.login`、`auth.status`、`auth.logout`、`jobs.status`、`jobs.list`、`jobs.resume`、`jobs.cancel`。
+发现结果包含 25 项业务操作和 7 项本机辅助操作。业务能力覆盖商品与分类、SKU 图集、ASIN、销量、市场订单、库存、备货、装箱、配货、物流与导出。辅助操作为 `auth.login`、`auth.status`、`auth.logout`、`jobs.status`、`jobs.list`、`jobs.resume`、`jobs.cancel`。
 
 ```json
 {"operation":"product_detail","params":{"asin":"B012345678"}}
 ```
+
+按精确 SKU 查看图片管理页全部图集（含包装版本）：
+
+```json
+{"operation":"product_images","params":{"sku":"DEMO-SKU-001"}}
+```
+
+返回六组图片的完整 URL、分类和主图标记；任一组失败则整体报错。仅查询链接，不下载、上传或删除图片。详见 [图集 API](docs/api.md#按-sku-查询完整图集)。
 
 首次使用时通过 `erp_execute` 调用 `auth.login`。MCP 返回本机临时网页地址，由用户亲自输入 ERP 地址、账号和密码；Agent 不查看、不填写或传递密码。服务只保存私有本机会话中的 token，不保存密码。若页面过期，再次调用 `auth.login`。使用 `auth.logout` 删除本机会话；不会撤销 ERP 上游 token。
 

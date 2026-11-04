@@ -126,8 +126,8 @@ test('discovery covers every business capability and helpers without loading log
   const fetchMock = t.mock.method(global, 'fetch', async () => { throw new Error('unexpected business request'); });
   const client = await memoryClient(t);
   const discovered = payload(await client.callTool({ name: 'erp_discover', arguments: {} }));
-  assert.equal(discovered.operations.filter((operation) => !operation.name.includes('.')).length, 24);
-  assert.equal(discovered.operations.length, 31);
+  assert.equal(discovered.operations.filter((operation) => !operation.name.includes('.')).length, 25);
+  assert.equal(discovered.operations.length, 32);
   for (const operation of discovered.operations) {
     const description = payload(await client.callTool({ name: 'erp_discover', arguments: { operation: operation.name } }));
     assert.equal(description.name, operation.name);
@@ -177,7 +177,7 @@ test('MCP browser login configures the current session and retries business work
   const work = payload(await execute(client, 'product_detail', { id: 7 }));
   assert.equal(work.state, 'succeeded');
   assert.equal(work.result.data.list[0].sku, 'FIXTURE-SKU');
-  assert.equal(payload(await execute(client, 'jobs.status', { jobId: work.jobId })).result.data.list[0].imageUrl, '/images/fixture.jpg');
+  assert.equal(payload(await execute(client, 'jobs.status', { jobId: work.jobId })).result.data.list[0].imageUrl, `http://127.0.0.1:${server.address().port}/images/fixture.jpg`);
   for (const value of [started, state, work]) for (const secret of [password, token]) assert.ok(!JSON.stringify(value).includes(secret));
   saveSession({ baseUrl: `http://127.0.0.1:${server.address().port}`, username: 'different-user', token: 'different-token', userId: 99 });
   const foreign = await execute(client, 'jobs.status', { jobId: work.jobId });
@@ -206,11 +206,43 @@ test('MCP product_detail searches ASIN inside the current user ERP and rejects c
   const result = await execute(client, 'product_detail', { asin });
   assert.equal(payload(result).state, 'succeeded');
   assert.equal(payload(result).result.data.list[0].asin, asin);
-  assert.equal(payload(result).result.data.list[0].imageUrl, '/images/sku-a.jpg');
+  assert.equal(payload(result).result.data.list[0].imageUrl, 'https://own-erp.invalid/images/sku-a.jpg');
   assert.equal(calls.length, 4);
   const invalid = await execute(client, 'product_detail', { id: 42, asin });
   assert.equal(invalid.isError, true);
   assert.equal(calls.length, 4);
+});
+
+test('MCP product_images discovers and reads all gallery groups from the saved personal ERP', async (t) => {
+  await isolate(t);
+  saveSession({ baseUrl: 'https://own-erp.invalid', username: 'own-user', token: 'own-token', expireTime: 4102444800 });
+  process.env.NEW_ERP_BASE_URL = 'https://shared.invalid';
+  process.env.NEW_ERP_TOKEN = 'shared-token';
+  let count = 0;
+  t.mock.method(global, 'fetch', async (input, options) => {
+    const url = new URL(input);
+    assert.equal(url.origin, 'https://own-erp.invalid');
+    assert.equal(options.headers.token, 'own-token');
+    assert.equal(options.method, 'GET');
+    count += 1;
+    const query = url.searchParams;
+    const data = query.get('r').endsWith('get-search-sku') ? [{ id: 42, sku: 'SKU-A' }]
+      : { image_list: query.get('deal_type') === '2' ? { stock_version_all: { V1: ['/images/pack.jpg'] } }
+        : { all: ['/images/main.jpg'] } };
+    return new Response(JSON.stringify({ code: 200, data }));
+  });
+  const client = await memoryClient(t);
+  const discovered = payload(await client.callTool({ name: 'erp_discover', arguments: { query: '图集' } }));
+  assert.equal(discovered.operations.some((operation) => operation.name === 'product_images'), true);
+  const result = payload(await execute(client, 'product_images', { sku: 'SKU-A' }));
+  assert.equal(result.state, 'succeeded');
+  assert.equal(result.result.data.complete, true);
+  assert.equal(result.result.data.groups.length, 6);
+  assert.deepEqual(result.result.data.urls, ['https://own-erp.invalid/images/main.jpg', 'https://own-erp.invalid/images/pack.jpg']);
+  assert.equal(count, 7);
+  const injected = await execute(client, 'product_images', { sku: 'SKU-A', token: 'injected' });
+  assert.equal(injected.isError, true);
+  assert.equal(count, 7);
 });
 
 test('MCP returns one JSON result using the saved user and handles session changes and expiry', async (t) => {

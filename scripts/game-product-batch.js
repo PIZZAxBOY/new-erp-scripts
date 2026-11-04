@@ -5,6 +5,7 @@ const {
   expandCatalogIds,
   fetchCatalogRows,
   getBaseUrl,
+  resolveImageUrl,
   resolveToken,
   positiveInteger,
   requestJson,
@@ -66,6 +67,7 @@ async function queryOneSku({ token, querySku, pageSize, productTypeCate, catalog
       price: null,
       pureWeight: null,
       totalCount: 0,
+      imageUrl: null,
       rawJson: null,
     }];
   }
@@ -88,6 +90,7 @@ async function queryOneSku({ token, querySku, pageSize, productTypeCate, catalog
       price: asNumberOrNull(row?.price),
       pureWeight: asNumberOrNull(row?.pure_weight),
       totalCount,
+      imageUrl: resolveImageUrl(row?.full_image_url, row?.image_url),
       rawJson: null,
     };
   });

@@ -42,13 +42,17 @@ erp_execute({ operation: 'auth.login', params: {} })
 | `erp_discover` | `query` 按关键词找能力；`operation` 返回所选能力的参数；都省略时列出目录。 |
 | `erp_execute` | 用 `operation`、`params` 执行；导出还需稳定的 `requestId`。 |
 
-目录覆盖现有 24 项业务能力：商品与分类、ASIN 图片、销量与汇总、市场订单、库存与凭证、装箱与配货、外包装、物流与申报，以及全部导出。`auth.*` 和 `jobs.*` 也通过同一个入口按需调用。
+目录覆盖现有 25 项业务能力：商品与分类、SKU 图集、ASIN 图片、销量与汇总、市场订单、库存与凭证、装箱与配货、外包装、物流与申报，以及全部导出。`auth.*` 和 `jobs.*` 也通过同一个入口按需调用。
 
 ```js
 erp_discover({ query: '商品' })
 erp_discover({ operation: 'product_detail' })
 erp_execute({ operation: 'product_detail', params: { asin: 'B012345678' } })
+erp_discover({ operation: 'product_images' })
+erp_execute({ operation: 'product_images', params: { sku: 'DEMO-SKU-001' } })
 ```
+
+`product_images` 按精确 SKU 读取图片管理页全部六组图片，保留包装版本、主图/销售主图标记及完整 HTTP(S) 地址。返回 `groups` 分类详情和 `urls` 去重链接；不存在的 SKU、损坏响应或任一组权限错误均报错，不返回残缺的“完整图集”。只返回链接，不提交 ERP 下载任务，也不修改图片。完整范围及字段见 [图集 API](./api.md#按-sku-查询完整图集)。
 
 ASIN 是示例值。其他业务参数以对应的 `erp_discover({ operation })` 结果为准；未知参数、错误类型和凭据参数会被拒绝。查询只使用本机保存的个人会话，不回退到环境或项目中的共享 token。
 

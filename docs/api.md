@@ -9,7 +9,7 @@ API 不会把凭据写入返回值、`source` 或错误文本；MCP 客户端应
 
 ## 基础查询与客户端
 
-基础查询导出 `catalogList`、`categorySummary`、`gameProductList`、`gameProductBatch`、`productDetail`、`salesVolumeRanking`、`salesVolumeExport`、`supplyEvidence` 和 `stockingAssemblyInbound`。
+基础查询导出 `catalogList`、`categorySummary`、`gameProductList`、`gameProductBatch`、`productDetail`、`productImages`、`salesVolumeRanking`、`salesVolumeExport`、`supplyEvidence` 和 `stockingAssemblyInbound`。
 
 底层 ERP API 客户端通过 `erpClient` 导出，包含 `loginToken`、`getBaseUrl` 和 `requestJson`，供需要分页采集自定义 ERP 接口的项目复用。
 `exportGameProducts({ token, fields })` 使用 ERP 商品导出任务，等待下载中心完成并返回 `{ taskId, file }`；`file` 是 XLSX Buffer，字段默认是 SKU、品名、单价。导出文件不含商品 ID。
@@ -21,6 +21,51 @@ API 不会把凭据写入返回值、`source` 或错误文本；MCP 客户端应
 `gameProductBatch` 在解释空结果为未找到前会校验分页元数据、列表存在性及行数；
 `salesVolumeRanking`（包括 `categorySummary`）会校验页码、页大小、总数、列表形状和本页行数。
 ERP 返回缺失或不一致的分页数据时直接抛错，不把损坏响应当作空结果。
+
+### 商品主图地址
+
+`gameProductList`、`gameProductBatch`、`productDetail`（ID/ASIN）和 `salesVolumeRanking` 的 `imageUrl` 返回完整 HTTP(S) 地址。
+优先使用 ERP 的 `full_image_url`，否则使用 `image_url`；相对路径根据当前调用的 ERP 基础地址解析（MCP 使用当前登录会话，不使用其他账号或环境中的地址）。已有绝对地址不重复拼接域名，`//` 开头的地址沿用 ERP 协议。
+无图、批量查询未找到或无有效 HTTP(S) 图片地址时为 `null`，不生成占位图片地址。支持 `raw` 的查询仍保留原始 JSON 中的图片字段。
+例如 ERP 地址为 `https://erp.example.com`，原字段为 `/images/S/SKU-A/main.jpg`，则 `imageUrl` 为 `https://erp.example.com/images/S/SKU-A/main.jpg`。
+完整地址不保证图片匿名可访问，也不代表包含附图全集。
+
+## 按 SKU 查询完整图集
+
+`productImages({ sku, token?, raw? })` 返回一个图集对象（不是商品详情数组），使用当前 ERP 地址和登录权限。`sku` 必须是单个非空字符串，去除首尾空白后大小写精确匹配。无匹配 SKU 抛错；存在但没有图片时返回六个空分组。
+
+```js
+import { productImages } from 'new-erp-mcp';
+
+const gallery = await productImages({ sku: 'DEMO-SKU-001' });
+console.log(gallery.urls);
+for (const group of gallery.groups) {
+  for (const image of group.images) {
+    console.log(group.label, image.stockVersion, image.url, image.isMain);
+  }
+}
+```
+
+MCP：`erp_execute({ operation: 'product_images', params: { sku: 'DEMO-SKU-001' } })`。先查询 `GET /products/game-product-list/get-search-sku?sku=...` 并精确匹配，排除相似 SKU；再依次读取 `GET /products/game-product-list/image-list` 的全部六组：
+
+| 分类 | `deal_type` | `window_img_type` | 图片列表 |
+| --- | --- | --- | --- |
+| AMZ 橱窗图 | `1` | `1` | `image_list.all` |
+| AMZ 小图 | `1` | `2` | `image_list.all` |
+| 国内销售橱窗图 | `1` | `3` | `image_list.all` |
+| 包装图 | `2` | 不传 | `image_list.stock_version_all` 中每个版本的数组 |
+| 宣传图 | `3` | 不传 | `image_list.all` |
+| 样品图 | `4` | 不传 | `image_list.all` |
+
+返回字段：
+
+- `sku`、`groups`：精确 SKU 和全部六组。每组含 `dealType`、`windowImageType`、`label`、`images`、`imageCount`、`mainImageUrl`、`salesMainImageUrl`、`source`（路由、参数、采集时间）。
+- `groups[].images[]`：`url` 完整 HTTP(S) 地址、`originalUrl` 原路径、`stockVersion` 包装版本（其他分类为 `null`）、`isMain`/`isSalesMain` 标记。保留原顺序、重复项和跨组关联，不丢弃其他包装版本。主图引用缺失时为 `null`，不生成占位图。
+- `imageCount` 为全部分类中的图片条目数（重复项仍计数）；`urls` 为这些条目去重后的完整地址，`uniqueImageCount` 为其数量。
+- `complete: true` 仅在六组均成功读取并校验后返回。缺少列表、非数组、无效图片地址或任一组权限错误均导致整体失败，不静默跳过；合法空数组正常返回。主图引用按 ERP 独立保留，不推造列表条目。
+- `raw: true` 在各组 `rawJson` 中保留未改写的原始响应 `data`，默认 `null`。
+
+这些接口与字段来自 [ERP 前端图片管理页](./erp-asin-contract.md#sku-图集接口依据)。该页不传分页参数，按每组的完整数组渲染；工具不猜测隐藏页码，也不通过猜测文件名寻找图片。“完整”限于当前账号在图片管理页这六组可读取的数据，不保证覆盖其他业务页面的附件、历史删除图片或未来新增分类，也不保证图片匿名可访问。仅查询 URL，不请求图片二进制、不提交下载任务、不修改 ERP 数据。本次图集实现已核对公开前端代码；真实账号数据和图片可达性仍需实际登录验证。
 
 ## 按 ASIN 查询 ERP 商品
 
@@ -54,7 +99,7 @@ ASIN 查询在原商品详情字段之外提供：
 | `asinListings` | 此 ERP SKU 对应的全部精确匹配 Listing 原始记录，保留店铺、MSKU 等差异。 |
 | `asinSource` | Listing 查询路由、参数、采集时间、`totalCount/fetchedCount/complete/matchedCount`；不包含凭据。 |
 
-`imageUrl` 保持 ERP 原始值；相对路径需结合 ERP 地址使用，空值不补造。ASIN 查询不保证存在主图或附图全集。重复店铺匹配同一产品时详情只读取一次；多个 SKU 或产品 ID 全部返回，不自动取首条。
+`imageUrl` 按上述规则返回完整主图地址，空值不补造。ASIN 查询不保证存在主图或附图全集；需图集时用返回的 ERP SKU 调用 `productImages`。重复店铺匹配同一产品时详情只读取一次；多个 SKU 或产品 ID 全部返回，不自动取首条。
 
 `maxPages` 默认100，最多1000，适用于每次 ASIN Listing 和 SKU 搜索；每页100条。列表截断、重复记录、总数变化、无法确认 ASIN、未配对 ERP SKU、无商品映射或详情 ID/SKU 不匹配均抛错，不返回部分结果，也不回退到公开亚马逊页面。`raw` 仍只附带商品详情原始 JSON。
 

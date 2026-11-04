@@ -76,7 +76,7 @@ test('product detail resolves ASIN through authenticated ERP listings and keeps 
   assert.equal(rows[0].id, 42);
   assert.equal(rows[0].sku, 'SKU-A');
   assert.equal(rows[0].asin, asin);
-  assert.equal(rows[0].imageUrl, '/images/P/SKU-A/main.jpg');
+  assert.equal(rows[0].imageUrl, 'https://erp.test.invalid/images/P/SKU-A/main.jpg');
   assert.deepEqual(rows[0].asinListings, listings.slice(0, 2));
   assert.equal(rows[0].asinSource.route, routes.listings);
   assert.equal(rows[0].asinSource.complete, true);
@@ -122,7 +122,7 @@ test('ASIN product detail includes discontinued products and their images', asyn
   });
   const rows = await productDetail({ asin, token: 'own-token' });
   assert.equal(rows[0].sku, 'SKU-OLD');
-  assert.equal(rows[0].imageUrl, '/images/old.jpg');
+  assert.equal(rows[0].imageUrl, 'https://erp.test.invalid/images/old.jpg');
 });
 
 test('invalid selectors fail before authentication or any network access', async (t) => {
@@ -183,7 +183,7 @@ test('ASIN API uses the ERP search flow and returns product information', async 
     const { productDetail } = await import('../index.mjs');
     const result = await productDetail({ asin, token: 'cli-own-token' });
     assert.equal(result[0].asin, asin);
-    assert.equal(result[0].imageUrl, '/images/example.jpg');
+    assert.equal(result[0].imageUrl, `http://127.0.0.1:${server.address().port}/images/example.jpg`);
   } finally {
     if (previousUrl === undefined) delete process.env.NEW_ERP_BASE_URL; else process.env.NEW_ERP_BASE_URL = previousUrl;
     if (previousToken === undefined) delete process.env.NEW_ERP_TOKEN; else process.env.NEW_ERP_TOKEN = previousToken;
