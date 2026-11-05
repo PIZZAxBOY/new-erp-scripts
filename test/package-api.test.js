@@ -20,7 +20,7 @@ test('package retains the stable JavaScript API exports', async () => {
   assert.equal(typeof api.erpClient.requestJson, 'function');
 });
 
-test('packed package exposes only the MCP launcher and serves two tools with 25 operations', async () => {
+test('packed package exposes stdio and HTTP MCP launchers and serves two tools with 25 operations', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'erp-mcp-package-'));
   try {
     const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], {
@@ -47,8 +47,12 @@ test('packed package exposes only the MCP launcher and serves two tools with 25 
     const checkoutExports = Object.keys(await import('new-erp-mcp')).sort();
     assert.deepEqual(JSON.parse(imported.stdout), checkoutExports);
     const manifest = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
-    assert.deepEqual(manifest.bin, { 'new-erp-mcp': 'scripts/mcp.js' });
+    assert.deepEqual(manifest.bin, {
+      'new-erp-mcp': 'scripts/mcp.js',
+      'new-erp-mcp-http': 'scripts/mcp-http.js',
+    });
     assert.equal((await fs.readdir(path.join(directory, 'node_modules', '.bin'))).includes('new-erp'), false);
+    assert.equal((await fs.readdir(path.join(directory, 'node_modules', '.bin'))).includes('new-erp-mcp-http'), true);
     const launcher = path.join(directory, 'node_modules', '.bin', 'new-erp-mcp');
     const secret = 'DO-NOT-ECHO-ARGUMENT-SECRET';
     const rejected = spawnSync(launcher, [`--token=${secret}`], { cwd: directory, encoding: 'utf8' });
@@ -68,7 +72,7 @@ test('packed package exposes only the MCP launcher and serves two tools with 25 
       const discovery = await client.callTool({ name: 'erp_discover', arguments: {} });
       const operations = JSON.parse(discovery.content[0].text).operations;
       assert.equal(operations.filter(({ name }) => !name.includes('.')).length, 25);
-      assert.equal(operations.filter(({ name }) => name.includes('.')).length, 7);
+      assert.equal(operations.filter(({ name }) => name.includes('.')).length, 9);
       const missing = await client.callTool({ name: 'erp_execute',
         arguments: { operation: 'product_detail', params: { id: 1 } } });
       assert.equal(missing.isError, true);

@@ -30,7 +30,7 @@ function number(value, required, row) {
   return result;
 }
 
-function parseSalesCsv(file, { aggregateBy = 'sku' } = {}) {
+function parseSalesCsv(file, { aggregateBy = 'sku', expectedPeriods } = {}) {
   let csv;
   try { csv = new TextDecoder('utf-8', { fatal: true }).decode(file); }
   catch {
@@ -58,6 +58,13 @@ function parseSalesCsv(file, { aggregateBy = 'sku' } = {}) {
   }
   const periods = headers.flatMap((header, index) => /^(?:\d{4}(?:-(?:0[1-9]|1[0-2]))?|\d{4}年(?:(?:0?[1-9]|1[0-2])月)?)$/.test(header)
     ? [{ date: header, index }] : []);
+  if (expectedPeriods) {
+    const labels = periods.map(({ date }) => date.replace(/^(\d{4})年(?:(\d{1,2})月)?$/, (_, year, month) => month ? `${year}-${month.padStart(2, '0')}` : year));
+    if (labels.length !== expectedPeriods.length || new Set(labels).size !== labels.length
+      || labels.some(label => !expectedPeriods.includes(label))) {
+      throw invalid('missing, duplicate or unexpected period headers');
+    }
+  }
   return records.map((values, index) => {
     const rowNumber = index + 2;
     const row = Object.fromEntries(Object.entries(columns).map(([field, column]) => [field, column === undefined ? null : values[column].trim()]));

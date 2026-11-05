@@ -127,3 +127,16 @@ test('MCP ranking returns a running receipt during CSV download and requestId re
   assert.equal(result.state, 'succeeded');
   assert.equal(result.result.data.list[0].sales, 5);
 });
+
+test('HTTP 200 duplicate-task message fails immediately instead of polling for a nonexistent task', async t => {
+  let requests = 0;
+  t.mock.method(global, 'fetch', async input => {
+    requests++;
+    const route = new URL(input).searchParams.get('r');
+    if (route === '/settings/download-center/index') return json({ list: [] });
+    assert.equal(route, '/statistics/sales-volume/download-list');
+    return new Response(JSON.stringify({ code: 200, msg: '已存在下载任务，请勿重复操作' }));
+  });
+  await assert.rejects(withErpContext(session, () => ranking(dates)), /already has a running export/);
+  assert.equal(requests, 2);
+});
