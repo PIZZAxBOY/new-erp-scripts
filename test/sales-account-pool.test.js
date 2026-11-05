@@ -36,11 +36,11 @@ test('rejects duplicates, wrong periods, subtotal mismatch, unsafe totals and ov
   assert.throws(() => mergeParts([first([row('A', '2025-01', Number.MAX_SAFE_INTEGER)]), second([row('A', '2025-02', 1)])], 'monthly'), /unsafe/);
 });
 
-function fixture(download, { count = 2, maxParallelExports } = {}) {
+function fixture(download, { count = 2, maxParallelExports, scope = { auctionSite: 'JY', productTypeCate: '5' } } = {}) {
   let clock = 0;
   const accounts = Array.from({ length: count }, (_, i) => ({ baseUrl: 'https://erp.example.com', token: `example-account-${i + 1}` }));
   const submits = [];
-  const load = createPool({ getSessions: () => accounts, scope: { auctionSite: 'JY', productTypeCate: '5' },
+  const load = createPool({ getSessions: () => accounts, scope,
     maxParallelExports,
     now: () => clock, sleep: async ms => { clock += ms; }, download: async options => {
       await options.beforeSubmit();
@@ -103,10 +103,39 @@ test('fails closed on shared output file or any segment failure; mean sorting st
     taskId: 'x', fileIdentity: 'same.csv' }));
   await assert.rejects(shared.load(options), /output-file collision/);
   const broken = fixture(async () => { throw new Error('example-private-detail'); });
-  await assert.rejects(broken.load(options), /no partial ranking/);
+  await assert.rejects(broken.load(options), (error) => {
+    assert.match(error.message, /no partial ranking/);
+    assert.doesNotMatch(error.message, /example-private-detail/);
+    return true;
+  });
   const single = fixture(); await single.load(options, { sort: 'mean' }); assert.equal(single.submits.length, 1);
-  const unverified = fixture(); await unverified.load({ ...options, query: { ...options.query, auction_site: 'YS' } });
-  assert.equal(unverified.submits.length, 1);
+  const otherSite = fixture();
+  await otherSite.load({ ...options, query: { ...options.query, auction_site: 'YS', catalog_id: '9', sku: 'A' } });
+  assert.equal(otherSite.submits.length, 2);
+  const disabled = fixture(undefined, { scope: null });
+  await disabled.load(options);
+  assert.equal(disabled.submits.length, 1);
+});
+
+test('splits sku-platform and platform aggregates without collapsing identities', async () => {
+  const platform = fixture(async options => {
+    const month = options.start.slice(0, 7);
+    return { taskId: month, fileIdentity: `${month}.csv`, file: Buffer.from(`平台,小计,${month}\nAmazon,2,2\n`) };
+  });
+  const platformResult = await platform.load({ ...options, query: { ...options.query, aggregate_by: 'platform' } });
+  assert.equal(platformResult.parts, 2);
+  assert.equal(platformResult.rows[0].auction_site_type, 'Amazon');
+  assert.equal(platformResult.rows[0].sales_sum, 4);
+  const split = fixture(async options => {
+    const month = options.start.slice(0, 7);
+    const value = month.endsWith('01') ? 3 : 5;
+    return { taskId: month, fileIdentity: `${month}.csv`,
+      file: Buffer.from(`sku,平台,小计,${month}\nA,Amazon,${value},${value}\nA,Shopify,1,1\n`) };
+  });
+  const rows = (await split.load({ ...options, query: { ...options.query, aggregate_by: 'sku-platform' } })).rows;
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find(row => row.auction_site_type === 'Amazon').sales_sum, 8);
+  assert.equal(rows.find(row => row.auction_site_type === 'Shopify').sales_sum, 2);
 });
 
 test('remote runtime globally ranks all segments, persists results, and reuses requestId', async t => {
@@ -130,19 +159,73 @@ test('remote runtime globally ranks all segments, persists results, and reuses r
   const session = runtime.auth.requireSession();
   const receipt = await runtime.jobs.start('sales_volume_ranking', params, session, { requestId: 'one-ranking' });
   let done = receipt;
-  for (let i = 0; i < 100 && ['running', 'queued'].includes(done.state); i++) {
-    await new Promise(resolve => setTimeout(resolve, 10));
+  for (let i = 0; i < 400 && ['running', 'queued'].includes(done.state); i++) {
+    await new Promise(resolve => setTimeout(resolve, 50));
     done = await runtime.jobs.status(receipt.jobId, session);
   }
-  assert.equal(done.state, 'succeeded');
+  assert.equal(done.state, 'succeeded', JSON.stringify(done.error));
   const [top] = done.result.data.list;
   assert.equal(top.sku, 'A'); assert.equal(top.sales, 15); assert.equal(top.totalCount, 3);
   assert.equal(top.exportParts, 4); assert.equal(top.mean, null);
   assert.deepEqual(calls.map(c => c.token), ['example-token-0', 'example-token-1', 'example-token-2', 'example-token-3']);
   const retried = await runtime.jobs.start('sales_volume_ranking', params, session, { requestId: 'one-ranking' });
   assert.equal(retried.jobId, receipt.jobId); assert.equal(calls.length, 4);
+  const covered = await runtime.jobs.start('sales_volume_ranking', {
+    startDate: '2025-02-01', endDate: '2025-02-28', auctionSite: 'JY', pageSize: 10,
+  }, session, { requestId: 'february-from-disk' });
+  let month = covered;
+  for (let i = 0; i < 400 && ['running', 'queued'].includes(month.state); i++) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    month = await runtime.jobs.status(covered.jobId, session);
+  }
+  assert.equal(month.state, 'succeeded', JSON.stringify(month.error));
+  assert.equal(month.result.data.list[0].sales, 8);
+  assert.equal(calls.length, 4);
   assert.equal(runtime.auth.status().maxParallelExports, 4);
   assert.doesNotMatch(JSON.stringify(runtime.auth.status()), /example-token|example-user/);
+
+  const exported = await runtime.jobs.start('sales_volume_export', {
+    startDate: '2025-01-01', endDate: '2025-04-30',
+  }, session, { requestId: 'csv-export' });
+  let csvJob = exported;
+  for (let i = 0; i < 400 && ['running', 'queued'].includes(csvJob.state); i++) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    csvJob = await runtime.jobs.status(exported.jobId, session);
+  }
+  assert.equal(csvJob.state, 'succeeded');
+  assert.equal(csvJob.result.encoding, 'UTF-8');
+  const csv = await fs.readFile(csvJob.result.artifact.path, 'utf8');
+  assert.match(csv, /^sku,小计,2025-01,2025-02,2025-03,2025-04\nA,15,4,8,1,2\n/);
+  assert.equal(calls.length, 8);
+  const again = await runtime.jobs.start('sales_volume_export', {
+    startDate: '2025-02-01', endDate: '2025-03-31',
+  }, session, { requestId: 'csv-from-disk' });
+  let reused = again;
+  for (let i = 0; i < 400 && ['running', 'queued'].includes(reused.state); i++) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    reused = await runtime.jobs.status(again.jobId, session);
+  }
+  assert.equal(reused.state, 'succeeded', JSON.stringify(reused.error));
+  assert.equal(calls.length, 8);
+
+  const { writeTable, readTable } = require('../scripts/xlsx-merge.js');
+  t.mock.method(require('../scripts/packing-detail-export.js'), 'main', async (options) => options.accountSplit({
+    start: '2025-01-01 00:00:00', end: '2025-04-30 23:59:59', query: { scan_date: 'full' },
+    run: async (range) => ({ file: writeTable([['box', 'qty'], [range.start.slice(0, 7), '1']]), boxes: 1, taskId: range.start, query: {} }),
+  }));
+  const packing = await runtime.jobs.start('packing_detail_export', {
+    project: 'JY', warehouses: 'DEMO-DEST', startDate: '2025-01-01', endDate: '2025-04-30',
+  }, session, { requestId: 'packing-export' });
+  let packed = packing;
+  for (let i = 0; i < 400 && ['running', 'queued'].includes(packed.state); i++) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    packed = await runtime.jobs.status(packing.jobId, session);
+  }
+  assert.equal(packed.state, 'succeeded');
+  assert.equal(packed.result.boxes, 4);
+  assert.deepEqual(readTable(await fs.readFile(packed.result.artifact.path)), [
+    ['box', 'qty'], ['2025-01', '1'], ['2025-02', '1'], ['2025-03', '1'], ['2025-04', '1'],
+  ]);
 });
 
 test('remote runtime requires distinct, unexpired administrator sessions', async t => {

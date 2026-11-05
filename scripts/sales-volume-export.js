@@ -72,9 +72,47 @@ async function main(options) {
     index: 'sales-volume',
   };
   if (options.auctionSiteType) query.auction_site_type = String(options.auctionSiteType).trim();
-  const { file, taskId } = await downloadSalesCsv({ token, query, start: start.text, end: end.text });
+  const exported = options.loadExport
+    ? await options.loadExport({ token, query, start: start.text, end: end.text, onProgress: options.onProgress })
+    : await downloadSalesCsv({ token, query, start: start.text, end: end.text, onProgress: options.onProgress });
+  const merged = Buffer.isBuffer(exported.file) ? null : serializeSalesCsv(
+    exported.rows, aggregateBy, require('./sales-account-pool.js').monthLabels(start.text, end.text));
+  const file = merged || exported.file;
+  if (!Buffer.isBuffer(file)) throw new CommandExecutionError('sales export did not return a CSV');
   await fs.writeFile(output, file, { flag: 'wx', mode: 0o600 });
-  return [{ taskId, output, bytes: file.length, encoding: 'GBK' }];
+  return [{
+    taskId: String(exported.taskId), output, bytes: file.length,
+    encoding: merged ? 'UTF-8' : 'GBK', ...(exported.parts ? { parts: exported.parts } : {}),
+  }];
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function serializeSalesCsv(rows, aggregate, periods) {
+  if (!Array.isArray(rows) || !Array.isArray(periods)) throw new CommandExecutionError('sales export merge did not produce rows');
+  const headers = [
+    ...(aggregate === 'platform' ? [] : ['sku']),
+    ...(aggregate === 'sku' ? [] : ['平台']),
+    '小计',
+    ...periods,
+  ];
+  const lines = [headers.join(',')];
+  for (const row of rows) {
+    if (!Array.isArray(row.statistics_rows) || row.statistics_rows.length !== periods.length
+      || row.statistics_rows.some((period, index) => period.date !== periods[index])) {
+      throw new CommandExecutionError('sales export merge periods do not match');
+    }
+    lines.push([
+      ...(aggregate === 'platform' ? [] : [row.sku]),
+      ...(aggregate === 'sku' ? [] : [row.auction_site_type]),
+      row.sales_sum,
+      ...row.statistics_rows.map(period => period.value),
+    ].map(csvCell).join(','));
+  }
+  return Buffer.from(`${lines.join('\n')}\n`, 'utf8');
 }
 
 async function downloadSalesCsv({ token, query, start, end, onProgress, beforeSubmit }) {
@@ -133,4 +171,4 @@ async function downloadSalesCsv({ token, query, start, end, onProgress, beforeSu
   return { taskId: task.id, file: Buffer.concat(chunks), fileIdentity: task.down_file || null };
 }
 
-module.exports = { main, matchingTask, downloadSalesCsv, args };
+module.exports = { main, matchingTask, downloadSalesCsv, serializeSalesCsv, args };

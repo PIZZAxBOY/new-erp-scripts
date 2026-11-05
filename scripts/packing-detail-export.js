@@ -25,6 +25,30 @@ async function main(options = {}) {
       throw new ArgumentError(`output already exists: ${output}`);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
+  if (typeof options.accountSplit === 'function' && !resumeId) {
+    const [start, end] = String(query.scan_date || '').split(' & ');
+    const result = await options.accountSplit({
+      start, end, query,
+      run: (range, ctx) => main({
+        ...options,
+        startDate: range.start,
+        endDate: range.end,
+        output: undefined,
+        accountSplit: undefined,
+        beforeSubmit: ctx.beforeSubmit,
+        onProgress: ctx.count > 1
+          ? (progress) => options.onProgress?.({ ...progress, taskId: undefined, phase: `part ${ctx.index + 1}/${ctx.count}` })
+          : options.onProgress,
+      }),
+    });
+    if (output && Buffer.isBuffer(result.file)) {
+      await fs.writeFile(output, result.file, { flag: 'wx', mode: 0o600 });
+      const { file, ...rest } = result;
+      return { ...rest, output, bytes: file.length };
+    }
+    if (output && !Buffer.isBuffer(result.file)) return { ...result, file: undefined, output: null, bytes: 0 };
+    return result;
+  }
   const token = await resolveToken(options);
   const listing = await packingOrderList({ ...options, token, page: 1, pageSize: 20, fetchAll: false });
   const boxes = listing.totalCount;
@@ -39,6 +63,7 @@ async function main(options = {}) {
   const previous = new Set();
   if (!resumeId) {
     for (const row of await tasks()) previous.add(String(row.id));
+    await options.beforeSubmit?.();
     await requestJson(urlFor(route, query), { headers: { token }, label: 'ERP 装箱明细导出' });
   }
   const deadline = Date.now() + timeoutMs;

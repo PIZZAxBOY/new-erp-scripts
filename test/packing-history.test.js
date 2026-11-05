@@ -255,6 +255,7 @@ test('explicit packing export taskId resumes a matching task and reports it with
     return new Response('PK-resumed', { headers: { 'content-disposition': 'attachment' } });
   });
   const result = await api.exportPackingDetails({ ...selection, ...history, taskId: 'saved', pollMs: 1,
+    accountSplit: () => { throw new Error('resume must not split across accounts'); },
     onProgress: (event) => { progress.push(event); } });
   assert.equal(result.taskId, 'saved');
   assert.equal(result.file.toString(), 'PK-resumed');

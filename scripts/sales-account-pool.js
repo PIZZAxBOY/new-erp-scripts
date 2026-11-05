@@ -81,7 +81,20 @@ function add(a, b) {
   return a + b;
 }
 
-function mergeParts(parts, dimension) {
+function rowIdentity(row, aggregate) {
+  if (aggregate === 'platform') {
+    if (!row.auction_site_type) throw invalid('missing or duplicate platform within a segment');
+    return row.auction_site_type;
+  }
+  if (aggregate === 'sku-platform') {
+    if (!row.sku || !row.auction_site_type) throw invalid('missing or duplicate SKU within a segment');
+    return `${row.sku}\0${row.auction_site_type}`;
+  }
+  if (!row.sku) throw invalid('missing or duplicate SKU within a segment');
+  return row.sku;
+}
+
+function mergeParts(parts, dimension, aggregate = 'sku') {
   const merged = new Map(), covered = new Set();
   for (const part of parts) {
     const expected = monthLabels(part.start, part.end);
@@ -91,8 +104,9 @@ function mergeParts(parts, dimension) {
     }
     const seen = new Set();
     for (const row of part.rows) {
-      if (!row.sku || seen.has(row.sku)) throw invalid('missing or duplicate SKU within a segment');
-      seen.add(row.sku);
+      const identity = rowIdentity(row, aggregate);
+      if (seen.has(identity)) throw invalid(aggregate === 'platform' ? 'missing or duplicate platform within a segment' : 'missing or duplicate SKU within a segment');
+      seen.add(identity);
       const periods = new Map();
       let sum = 0;
       for (const p of row.statistics_rows) {
@@ -102,10 +116,10 @@ function mergeParts(parts, dimension) {
         sum = add(sum, p.value);
       }
       if (periods.size !== expected.length || sum !== row.sales_sum) throw invalid('missing periods or subtotal mismatch');
-      let result = merged.get(row.sku);
+      let result = merged.get(identity);
       if (!result) {
         result = { ...row, sales_sum: 0, mean: null, csv: undefined, periods: new Map() };
-        merged.set(row.sku, result);
+        merged.set(identity, result);
       }
       result.sales_sum = add(result.sales_sum, row.sales_sum);
       for (const [month, value] of periods) result.periods.set(month, value);
@@ -122,7 +136,7 @@ function mergeParts(parts, dimension) {
   });
 }
 
-function createPool({ getSessions, scope, download, maxParallelExports, singleAccountDays, isActive = () => true, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+function createSplit({ getSessions, maxParallelExports, singleAccountDays, isActive = () => true, now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), failureMessage = 'a segment failed; no partial export returned' }) {
   const concurrency = normalizeParallelExports(maxParallelExports);
   const smallRangeDays = normalizeSingleAccountDays(singleAccountDays);
   let gate = Promise.resolve(), nextSubmit = 0;
@@ -135,30 +149,59 @@ function createPool({ getSessions, scope, download, maxParallelExports, singleAc
     gate = pending.catch(() => {});
     return pending;
   }
-  return async function loadExport(options, { sort = 'sales' } = {}) {
+  return async function split(start, end, worker, { accounts = 1 } = {}) {
     const sessions = getSessions();
-    const { query, start, end, onProgress } = options;
-    const eligible = scope && query.auction_site === scope.auctionSite && query.product_type_cate === scope.productTypeCate
-      && query.aggregate_by === 'sku' && !query.auction_site_type && !query.catalog_id && sort !== 'mean';
-    const ranges = splitMonths(start, end, eligible ? Math.min(sessions.length, concurrency) : 1, smallRangeDays);
-    if (ranges.length === 1) {
-      return withErpContext(sessions[0], () => download({ ...options, token: sessions[0].token, beforeSubmit }));
-    }
-    const results = await Promise.allSettled(ranges.map((range, index) => withErpContext(sessions[index], async () => {
-      const partQuery = { ...query, date_dimension: 'monthly', date_range: `${range.start} & ${range.end}` };
-      const result = await download({ token: sessions[index].token, query: partQuery, ...range, beforeSubmit,
-        onProgress: progress => onProgress?.({ ...progress, phase: `part ${index + 1}/${ranges.length}` }) });
-      if (typeof result.fileIdentity !== 'string' || !result.fileIdentity) throw invalid('cannot verify distinct output files');
-      return { ...range, ...result, rows: parseSalesCsv(result.file, {
-        aggregateBy: 'sku', expectedPeriods: monthLabels(range.start, range.end),
-      }) };
-    })));
-    const failure = results.find(r => r.status === 'rejected');
-    if (failure) throw invalid('a segment failed; no partial ranking returned');
-    const parts = results.map(r => r.value);
-    if (new Set(parts.map(p => p.fileIdentity)).size !== parts.length) throw invalid('ERP output-file collision; discard all segments');
-    return { rows: mergeParts(parts, query.date_dimension), taskId: parts[0].taskId, taskIds: parts.map(p => String(p.taskId)), parts: parts.length };
+    if (!sessions.length) throw invalid('no ERP account is configured');
+    const count = Math.min(sessions.length, concurrency, accounts);
+    const ranges = splitMonths(start, end, count, smallRangeDays);
+    const run = (range, index) => withErpContext(sessions[index], () => worker({
+      session: sessions[index], range, index, count: ranges.length, beforeSubmit,
+    }));
+    if (ranges.length === 1) return [await run(ranges[0], 0)];
+    const results = await Promise.allSettled(ranges.map(run));
+    if (results.some(result => result.status === 'rejected')) throw invalid(failureMessage);
+    return results.map(result => result.value);
   };
 }
 
-module.exports = { splitMonths, mergeParts, createPool, normalizeParallelExports, normalizeSingleAccountDays, monthLabels };
+function canSplitSales(query, sort) {
+  return sort !== 'mean' && ['sku', 'sku-platform', 'platform'].includes(query.aggregate_by || 'sku');
+}
+
+function createPool({ getSessions, scope, download, maxParallelExports, singleAccountDays, isActive, now, sleep }) {
+  const split = createSplit({
+    getSessions, maxParallelExports, singleAccountDays, isActive, now, sleep,
+    failureMessage: 'a segment failed; no partial ranking returned',
+  });
+  return async function loadExport(options, { sort = 'sales' } = {}) {
+    const { query, start, end, onProgress } = options;
+    const aggregate = query.aggregate_by || 'sku';
+    const results = await split(start, end, async ({ session, range, index, count, beforeSubmit }) => {
+      if (count === 1) return download({ ...options, token: session.token, beforeSubmit });
+      const partQuery = { ...query, date_dimension: 'monthly', date_range: `${range.start} & ${range.end}` };
+      const result = await download({
+        token: session.token, query: partQuery, ...range, beforeSubmit,
+        onProgress: progress => onProgress?.({ ...progress, phase: `part ${index + 1}/${count}` }),
+      });
+      if (typeof result.fileIdentity !== 'string' || !result.fileIdentity) throw invalid('cannot verify distinct output files');
+      return {
+        ...range, ...result, rows: parseSalesCsv(result.file, {
+          aggregateBy: aggregate, expectedPeriods: monthLabels(range.start, range.end),
+        }),
+      };
+    }, { accounts: scope && canSplitSales(query, sort) ? Number.POSITIVE_INFINITY : 1 });
+    if (results.length === 1) return results[0];
+    if (new Set(results.map(part => part.fileIdentity)).size !== results.length) throw invalid('ERP output-file collision; discard all segments');
+    return {
+      rows: mergeParts(results, query.date_dimension, aggregate),
+      taskId: results[0].taskId,
+      taskIds: results.map(part => String(part.taskId)),
+      parts: results.length,
+    };
+  };
+}
+
+module.exports = {
+  splitMonths, mergeParts, createPool, createSplit,
+  normalizeParallelExports, normalizeSingleAccountDays, monthLabels,
+};
