@@ -94,7 +94,7 @@ function metadata(entry) {
 function requirementsFor(entry, args) {
   const requirements = ['Requires a fresh saved personal ERP login. Business validators enforce required filters and valid values.'];
   if (entry.effect === 'export') requirements.push(entry.name === 'sales_volume_ranking'
-    ? 'Requires a stable requestId (also for source=list). Returns ranking data; poll jobs.status with the same jobId. CSV is parsed in memory, not saved as an artifact.'
+    ? 'Requires a stable requestId (also for source=list). Poll jobs.status with the same jobId. Large JSON results become private artifacts; preview is truncated and must never be used for totals. Use jobs.read for complete stored rows, or jobs.sales_summary for monthly/yearly totals of a complete export SKU result (fetchAll=true). No new export or separate download authentication is needed for these helpers.'
     : 'Requires a stable requestId. Files are saved to a server-managed private artifact.');
   if (entry.name === 'sales_volume_ranking') requirements.push('远程 HTTP export 默认使用不自动过期的完整销量快照；返回 localData 覆盖信息和 cache.permanent。仅已验证的 JY 顶级 SKU 月度范围、sort=sales/sku 且无 SKU/平台/分类筛选可组合片段并只导出缺口，其他查询仅精确复用。localData 时间是下载时间，不代表 ERP 快照时间；forceRefresh=true 配新 requestId 使重叠覆盖失效并重新导出，同一 requestId 始终复用原任务。salesData.enabled=false 时退回 15 分钟 salesCache；两者都禁用才每次重新导出。source=list、JS/stdio 不使用共享层。权限变化须同时更新 salesData.epoch 和 salesCache.epoch。');
   for (const arg of args.filter((field) => field.choices)) {

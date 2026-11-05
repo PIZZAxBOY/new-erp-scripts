@@ -72,7 +72,7 @@ test('packed package exposes stdio and HTTP MCP launchers and serves two tools w
       const discovery = await client.callTool({ name: 'erp_discover', arguments: {} });
       const operations = JSON.parse(discovery.content[0].text).operations;
       assert.equal(operations.filter(({ name }) => !name.includes('.')).length, 25);
-      assert.equal(operations.filter(({ name }) => name.includes('.')).length, 7);
+      assert.equal(operations.filter(({ name }) => name.includes('.')).length, 9);
       const missing = await client.callTool({ name: 'erp_execute',
         arguments: { operation: 'product_detail', params: { id: 1 } } });
       assert.equal(missing.isError, true);

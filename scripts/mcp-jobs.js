@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { withErpContext, AuthRequiredError, redactSensitiveText } = require('./shared.js');
 const { createStore, ownerOf, canonical, digest, failure, alive } = require('./mcp-job-store.js');
 const { adaptResult, consumePages, StreamFailure } = require('./mcp-artifacts.js');
+const { loadResult, resultPage, salesSummary } = require('./mcp-results.js');
 
 const ACTIVE = new Set(['queued', 'running']);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -23,6 +24,13 @@ function createJobs({ rootDir, getOperation, waitMs = 750 } = {}) {
       if (record[key] !== undefined) result[key] = record[key];
     }
     if (ACTIVE.has(record.state)) result.pollAfterMs = 1000;
+    if (record.state === 'succeeded' && (record.result?.artifact?.mediaType === 'application/json' || Array.isArray(record.result?.data?.list))) {
+      result.resultAccess = { read: { operation: 'jobs.read', params: { jobId: record.jobId, offset: 0, limit: 20 } },
+        note: 'preview 不是完整数据；使用 jobs.read 的 nextOffset 读取，不会重新导出。' };
+      if (record.operation === 'sales_volume_ranking') result.resultAccess.summary = {
+        operation: 'jobs.sales_summary', params: { jobId: record.jobId },
+      };
+    }
     if (note) result.error = note;
     return structuredClone(result);
   }
@@ -271,7 +279,17 @@ function createJobs({ rootDir, getOperation, waitMs = 750 } = {}) {
     }
   }
 
-  return { start, status, list, resume, cancel, close };
+  async function readResult(jobId, session, options) {
+    const record = await owned(jobId, session);
+    return { jobId, ...resultPage(await loadResult(record, store), options) };
+  }
+
+  async function summarizeSales(jobId, session) {
+    const record = await owned(jobId, session);
+    return salesSummary(record, await loadResult(record, store));
+  }
+
+  return { start, status, list, resume, cancel, close, readResult, summarizeSales };
 }
 
 module.exports = { createJobs };

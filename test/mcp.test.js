@@ -127,7 +127,7 @@ test('discovery covers every business capability and helpers without loading log
   const client = await memoryClient(t);
   const discovered = payload(await client.callTool({ name: 'erp_discover', arguments: {} }));
   assert.equal(discovered.operations.filter((operation) => !operation.name.includes('.')).length, 25);
-  assert.equal(discovered.operations.length, 32);
+  assert.equal(discovered.operations.length, 34);
   for (const operation of discovered.operations) {
     const description = payload(await client.callTool({ name: 'erp_discover', arguments: { operation: operation.name } }));
     assert.equal(description.name, operation.name);

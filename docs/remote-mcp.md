@@ -108,6 +108,21 @@ erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-annual-refresh-0
 
 ## 请求限制与任务结果
 
+Agent 不应使用截断的 `preview` 汇总销量。成功任务的 `resultAccess` 提供后续读取调用；即使旧任务也可直接使用：
+
+```js
+erp_execute({ operation: 'jobs.read', params: {
+  jobId: '<原任务 jobId>', offset: 0, limit: 20,
+  fields: ['sku', 'sales', 'periodValues']
+} })
+erp_execute({ operation: 'jobs.sales_summary', params: { jobId: '<原任务 jobId>' } })
+```
+
+两者使用现有 MCP 认证，不需要额外 HTTP 下载，也不创建 ERP 导出任务或要求新的 `requestId`。
+`jobs.read` 仅支持 JSON `list`，默认20条、最多100条，按24KB记录预算自动减少条数；用返回的 `nextOffset` 继续直到 `null`。字段值不会截断，单条过大时报错并要求用 `fields` 选择顶层字段。`storedRowCount` 是原任务保存的条数，不保证包含 ERP 所有匹配记录；原任务只取 Top20 时，本接口不会自动补取其他 SKU。CSV/XLSX/NDJSON 仍需认证下载。
+
+`jobs.sales_summary` 支持 `sales_volume_ranking` 的 export、SKU、monthly/yearly 完整结果，最多240个期间；建议创建原任务时设置 `fetchAll: true`。返回 `periods`、`totalSales`、`skuCount`、原查询条件和完成时间。逐 SKU 校验唯一性、期间集合、整数精度、小计和结果条数；部分分页、缺失列及不一致数据会报错，不返回部分汇总。汇总沿用原查询品牌、物料和时间筛选：不足整月的范围不会变成整月销量；完成时间不是 ERP 数据库快照时间。历史任务读取不刷新销量，必要时另行显式强制刷新。
+
 默认限制为请求体 128 KiB、最多 32 个并发请求、全局突发 120 个请求并以每秒 2 个请求补充；下载文件上限为 64 MiB。响应使用禁止缓存和 `nosniff` 标头。
 
 MCP 结果和 `jobs.list` 不返回主机文件系统路径；完整且成功的产物提供 `downloadUrl`。客户端必须携带同一个 Bearer 令牌访问 `/artifacts/<job-id>`。服务会检查任务所属会话、成功状态、产物完整性、固定文件名、目录包含关系、符号链接和私有文件权限；调用方不能指定文件路径。支持的附件为 `result.json`、`pages.ndjson`、`export.csv` 和 `export.xlsx`。
