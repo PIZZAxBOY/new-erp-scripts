@@ -96,7 +96,7 @@ function requirementsFor(entry, args) {
   if (entry.effect === 'export') requirements.push(entry.name === 'sales_volume_ranking'
     ? 'Requires a stable requestId (also for source=list). Poll jobs.status with the same jobId. Large JSON results become private artifacts; preview is truncated and must never be used for totals. Use jobs.read for complete stored rows, or jobs.sales_summary for monthly/yearly totals of a complete export SKU result (fetchAll=true). No new export or separate download authentication is needed for these helpers.'
     : 'Requires a stable requestId. Files are saved to a server-managed private artifact.');
-  if (entry.name === 'sales_volume_ranking') requirements.push('远程 HTTP export 默认使用不自动过期的完整销量快照；返回 localData 覆盖信息和 cache.permanent。仅已验证的 JY 顶级 SKU 月度范围、sort=sales/sku 且无 SKU/平台/分类筛选可组合片段并只导出缺口，其他查询仅精确复用。localData 时间是下载时间，不代表 ERP 快照时间；forceRefresh=true 配新 requestId 使重叠覆盖失效并重新导出，同一 requestId 始终复用原任务。salesData.enabled=false 时退回 15 分钟 salesCache；两者都禁用才每次重新导出。source=list、JS/stdio 不使用共享层。权限变化须同时更新 salesData.epoch 和 salesCache.epoch。');
+  if (entry.name === 'sales_volume_ranking') requirements.push('远程 HTTP export 默认把销量合并成按月快照并永久保存在磁盘。之后的月度或年度请求若被这些月份覆盖，直接读磁盘，只导出缺口。不满整月的边缘不能从整月合计拆出，仍补导出该边缘。按 mean 排序不使用月度合计。localData 时间是下载时间，不代表 ERP 快照时间；forceRefresh=true 配新 requestId 使重叠覆盖失效并重新导出，同一 requestId 始终复用原任务。salesData.enabled=false 时退回 15 分钟 salesCache；两者都禁用才每次重新导出。source=list、JS/stdio 不使用共享层。权限变化须同时更新 salesData.epoch 和 salesCache.epoch。');
   for (const arg of args.filter((field) => field.choices)) {
     requirements.push(`${arg.name}: ${arg.choices.join(', ')} (runtime aliases may also be accepted)`);
   }
@@ -105,12 +105,13 @@ function requirementsFor(entry, args) {
   }
   if (entry.name === 'packing_detail_export') {
     requirements.push('project, warehouses, startDate, endDate are always required. taskId resumes only a matching existing ERP export.');
+    requirements.push('远程账号池启用后，超过 singleAccountDays 且未带 taskId 的新导出按月分段并行，合并为一个工作簿；单段保持 ERP 原 XLSX。带 taskId 的恢复不分流。各段须只有一张工作表且首行表头一致。任一段失败或表头不一致时不返回部分文件，多段结果也不保存可单独恢复的 taskId。');
   }
   if (entry.name === 'export_game_products') requirements.push('fields accepts nonempty unique ERP field names; the three defaults are examples, not an allowlist.');
   const scope = {
     category_summary: '仅统计各分类 SKU 销售记录行数，不累计销售件数，也不是 SKU 销量排名。无论 pageSize 多小都会读取全部匹配分页（默认每页 100 条、最多 100 页）；没有 Top N 或单页模式。仅在明确需要分类记录计数时使用；查询销量、热销或前 N 名请直接用 sales_volume_ranking，不要先运行此工具。',
     sales_volume_ranking: '销量/热销/Top N 首选此工具，不需要先查 category_summary。startDate/endDate 必填；默认 productTypeCate="5"（顶级物料），显式 "6" 查询二级物料，显式 "" 查询全部类型。默认 source=export：只提交一次异步导出，等待下载完整 CSV 后排序；Top N（N<=100）用 page=1、pageSize=N、fetchAll=false 截取结果，不减少上游导出量。fetchAll=true 返回全部排名，指定 sku 时精确过滤并返回全部匹配结果。长时间范围不要先调用列表接口；异步导出仍可能排队或失败，最长等待约20分钟，CSV上限64MiB，不能保证耗时。可显式 source=list 使用旧列表模式：单页仅支持销量降序，其他排序或 sku 查询需完整分页，maxPages 仅限制 list。MCP 用稳定 requestId 提交并轮询同一 jobId，勿反复创建任务。不猜测缺失销量、未知 CSV 表头或 mean 口径。',
-    sales_volume_export: '需要 CSV 文件时使用，会创建 ERP 异步导出任务，不是低成本 Top N 查询；快速销量排名请用 sales_volume_ranking。此工具没有 productTypeCate 参数，不继承销量排名默认顶级物料的筛选。',
+    sales_volume_export: '需要 CSV 文件时使用，会创建 ERP 异步导出任务，不是低成本 Top N 查询；快速销量排名请用 sales_volume_ranking。此工具没有 productTypeCate 参数，不继承销量排名默认顶级物料的筛选。远程 HTTP 会把导出结果合并成按月快照；同一筛选下被已有月份覆盖的范围直接读磁盘，只导出缺口。账号池启用后，超过 singleAccountDays 的缺口仍按月分段。单段原文件保持 ERP GBK CSV，合并结果为 UTF-8。任一段失败不返回部分文件。',
     game_product_list: 'ERP 搜索可能模糊匹配，需核对返回 SKU；结果仅为当前页。',
     game_product_batch: 'found 表示 ERP 搜索有返回，不保证精确 SKU；每个 SKU 只查一页，结合 querySku 和 totalCount 判断范围。',
     product_detail: 'id 与 asin 必须二选一。ASIN 保留全部精确 SKU 和店铺匹配；imageUrl 返回完整 HTTP(S) 主图地址，无图为 null，不保证有完整图库。',

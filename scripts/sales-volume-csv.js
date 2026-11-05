@@ -50,7 +50,10 @@ function parseSalesCsv(file, { aggregateBy = 'sku', expectedPeriods } = {}) {
     if (matches.length > 1) throw invalid(`ambiguous ${field} columns`);
     columns[field] = matches[0];
   }
-  for (const field of ['sku', 'sales_sum', ...(aggregateBy === 'sku-platform' ? ['auction_site_type'] : [])]) {
+  const required = aggregateBy === 'platform'
+    ? ['auction_site_type', 'sales_sum']
+    : ['sku', 'sales_sum', ...(aggregateBy === 'sku-platform' ? ['auction_site_type'] : [])];
+  for (const field of required) {
     if (columns[field] === undefined) {
       const label = field === 'auction_site_type' ? 'platform (auction_site_type)' : field;
       throw invalid(`missing ${label} header; cannot infer totals or aggregation`);
@@ -68,7 +71,9 @@ function parseSalesCsv(file, { aggregateBy = 'sku', expectedPeriods } = {}) {
   return records.map((values, index) => {
     const rowNumber = index + 2;
     const row = Object.fromEntries(Object.entries(columns).map(([field, column]) => [field, column === undefined ? null : values[column].trim()]));
-    if (!row.sku) throw invalid(`missing SKU at row ${rowNumber}`);
+    if (aggregateBy === 'platform') {
+      if (!row.auction_site_type) throw invalid(`missing platform at row ${rowNumber}`);
+    } else if (!row.sku) throw invalid(`missing SKU at row ${rowNumber}`);
     if (aggregateBy === 'sku-platform' && !row.auction_site_type) throw invalid(`missing platform at row ${rowNumber}`);
     row.sales_sum = number(row.sales_sum, true, rowNumber);
     row.mean = number(row.mean, false, rowNumber);

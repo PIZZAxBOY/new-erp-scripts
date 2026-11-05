@@ -56,9 +56,45 @@ async function writePrivate(filename, buffer) {
   try { await file.writeFile(buffer); await file.sync(); } finally { await file.close(); }
 }
 
-function reusable(rows) {
-  return new Set(rows.map(row => row.sku)).size === rows.length && rows.every(row => Number.isSafeInteger(row.sales_sum)
+function rowKey(row, aggregate = 'sku') {
+  if (aggregate === 'platform') return row.auction_site_type || '';
+  if (aggregate === 'sku-platform') return `${row.sku || ''}\0${row.auction_site_type || ''}`;
+  return row.sku || '';
+}
+
+function reusable(rows, aggregate = 'sku') {
+  return new Set(rows.map(row => rowKey(row, aggregate))).size === rows.length && rows.every(row => Number.isSafeInteger(row.sales_sum)
     && row.sales_sum > 0 && row.statistics_rows.every(p => Number.isSafeInteger(p.value) && p.value >= 0));
+}
+
+function monthWindows(options) {
+  const span = range(options);
+  if (options.query.date_dimension !== 'monthly') return [{ ...span, month: null }];
+  const months = monthLabels(options.start, options.end);
+  if (months.length <= 1) return [{ ...span, month: months[0] || null }];
+  return months.map(month => {
+    const start = Date.parse(`${month}-01T00:00:00Z`);
+    const next = new Date(start);
+    const until = Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 1);
+    return { month, from: Math.max(span.from, start), until: Math.min(span.until, until) };
+  }).filter(window => window.from < window.until);
+}
+
+function monthSlice(options, rows, window) {
+  if (!window.month || monthWindows(options).length <= 1) return { options, rows };
+  const start = format(window.from), end = format(window.until - 1000);
+  const sliceRows = rows.flatMap(row => {
+    const value = row.statistics_rows.find(period => label(period.date) === window.month)?.value;
+    if (!Number.isSafeInteger(value) || value === 0) return [];
+    return [{ ...row, mean: null, sales_sum: value, statistics_rows: [{ date: window.month, value }] }];
+  });
+  return {
+    options: {
+      ...options, start, end,
+      query: { ...options.query, date_dimension: 'monthly', date_range: `${start} & ${end}` },
+    },
+    rows: sliceRows,
+  };
 }
 
 function fragments(records, wanted) {
@@ -90,26 +126,29 @@ function gaps(parts, wanted) {
 }
 
 function assemble(parts, bodies, options) {
+  const aggregate = options.query.aggregate_by || 'sku';
   const months = monthLabels(options.start, options.end), totals = new Map();
   for (const part of parts) {
     for (const row of bodies.get(part.record.id).rows) {
       const value = row.statistics_rows.find(p => label(p.date) === part.month)?.value;
       if (!Number.isSafeInteger(value) || value < 0) throw new Error('Cannot assemble signed or ambiguous sales data');
       if (!value) continue;
-      if (!totals.has(row.sku)) totals.set(row.sku, new Map());
-      const periods = totals.get(row.sku), sum = (periods.get(part.month) || 0) + value;
+      const key = rowKey(row, aggregate);
+      if (!totals.has(key)) totals.set(key, { row, periods: new Map() });
+      const periods = totals.get(key).periods, sum = (periods.get(part.month) || 0) + value;
       if (!Number.isSafeInteger(sum)) throw new Error('Unsafe assembled sales total');
       periods.set(part.month, sum);
     }
   }
-  const rows = [...totals].map(([sku, periods]) => {
+  const rows = [...totals.values()].map(({ row, periods }) => {
     const values = new Map();
     for (const month of months) {
       const key = options.query.date_dimension === 'yearly' ? month.slice(0, 4) : month;
       values.set(key, (values.get(key) || 0) + (periods.get(month) || 0));
     }
-    return { sku, auction_site: options.query.auction_site || null, sales_sum: [...values.values()].reduce((a, b) => a + b, 0),
-      mean: null, statistics_rows: [...values].map(([date, value]) => ({ date, value })) };
+    return { ...row, sku: row.sku, auction_site: row.auction_site || options.query.auction_site || null,
+      sales_sum: [...values.values()].reduce((a, b) => a + b, 0), mean: null,
+      statistics_rows: [...values].map(([date, value]) => ({ date, value })) };
   });
   validateRows(rows, options);
   return rows;
@@ -157,7 +196,7 @@ function createSalesDataStore({ rootDir, config: value, now = Date.now }) {
       || saved.fetchedAt !== record.fetchedAt || saved.reusable !== record.reusable
       || saved.sequence !== record.sequence) throw new Error('Permanent sales index does not match snapshot');
     validateRows(saved.result.rows, saved.options);
-    if (record.reusable && !reusable(saved.result.rows)) throw new Error('Invalid reusable sales snapshot');
+    if (record.reusable && !reusable(saved.result.rows, saved.options.query.aggregate_by)) throw new Error('Invalid reusable sales snapshot');
     return saved.result;
   }
   async function persist(directory, family, options, exported, allowRange, sequence) {
@@ -167,7 +206,7 @@ function createSalesDataStore({ rootDir, config: value, now = Date.now }) {
     validateRows(rows, options);
     const result = { rows, taskId: String(exported.taskId), taskIds: exported.taskIds || [String(exported.taskId)], ...(exported.parts ? { parts: exported.parts } : {}) };
     const base = { version: 1, family, ...range(options), fetchedAt, sequence,
-      reusable: Boolean(allowRange && options.query.date_dimension === 'monthly' && reusable(rows)) };
+      reusable: Boolean(allowRange && options.query.date_dimension === 'monthly' && reusable(rows, options.query.aggregate_by)) };
     const raw = Buffer.from(JSON.stringify({ ...base, options: { start: options.start, end: options.end, query: options.query }, result }));
     if (raw.length > MAX_BYTES) throw new Error('Permanent sales snapshot exceeds 64 MiB; no data was deleted');
     const compressed = await gzip(raw);
@@ -191,7 +230,7 @@ function createSalesDataStore({ rootDir, config: value, now = Date.now }) {
       ...(mode === 'assembled' || mode === 'mixed' ? { skuPolicy: 'positive-sales', mean: 'unavailable' } : {}) } };
   }
   function load(options, { identity, allowRangeReuse = false, forceRefresh = false } = {}, download) {
-    allowRangeReuse = allowRangeReuse && options.query.date_dimension === 'monthly';
+    allowRangeReuse = Boolean(allowRangeReuse) && ['monthly', 'yearly'].includes(options.query.date_dimension || 'monthly');
     const run = async () => {
       if (!config.enabled) return download(options);
       const wanted = range(options), query = { ...options.query };
@@ -222,18 +261,31 @@ function createSalesDataStore({ rootDir, config: value, now = Date.now }) {
         const request = { ...options, start, end, query: { ...options.query, date_range: `${start} & ${end}`,
           date_dimension: allowRangeReuse ? 'monthly' : options.query.date_dimension } };
         const exported = await download(request);
-        const saved = await persist(directory, family, request, exported, allowRangeReuse, (records.at(-1)?.sequence || 0) + 1);
-        records.push(saved.record);
-        return saved;
+        const rows = exported.rows || parseSalesCsv(exported.file, {
+          aggregateBy: request.query.aggregate_by, expectedPeriods: expectedPeriods(request),
+        });
+        const saved = [];
+        for (const slice of monthWindows(request).map(window => monthSlice(request, rows, window))) {
+          const record = await persist(directory, family, slice.options, { ...exported, rows: slice.rows, file: undefined },
+            allowRangeReuse, (records.at(-1)?.sequence || 0) + 1);
+          records.push(record.record);
+          saved.push(record.record);
+        }
+        return { result: { rows, taskId: String(exported.taskId), taskIds: exported.taskIds || [String(exported.taskId)],
+          ...(exported.parts ? { parts: exported.parts } : {}) }, records: saved };
       };
       if (forceRefresh || !allowRangeReuse) {
         const saved = await fetchRange(wanted);
-        return metadata(saved.result, [saved.record], 'export', false);
+        return metadata(saved.result, saved.records, 'export', false);
       }
       let parts = fragments(records, wanted);
       let missing = gaps(parts, wanted);
       const hadLocal = parts.length > 0;
       if (missing.length > 32) missing = [wanted];
+      if (missing.length === 1 && missing[0].from === wanted.from && missing[0].until === wanted.until) {
+        const saved = await fetchRange(wanted);
+        return metadata(saved.result, saved.records, 'export', false);
+      }
       for (const interval of missing) await fetchRange(interval);
       const complete = records.findLast((r, i) => !r.invalidated && r.from === wanted.from && r.until === wanted.until
         && !records.slice(i + 1).some(newer => overlaps(r, newer)));
@@ -243,7 +295,7 @@ function createSalesDataStore({ rootDir, config: value, now = Date.now }) {
       parts = fragments(records, wanted);
       if (gaps(parts, wanted).length) {
         const saved = await fetchRange(wanted);
-        return metadata(saved.result, [saved.record], 'export', false);
+        return metadata(saved.result, saved.records, 'export', false);
       }
       const selected = [...new Map(parts.map(p => [p.record.id, p.record])).values()], bodies = new Map();
       for (const record of selected) bodies.set(record.id, await body(directory, record));

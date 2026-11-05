@@ -41,12 +41,14 @@ test('permanent snapshots survive new instances and time; contained full months 
   const f = await fixture(t), whole = options('2024-01-01', '2024-03-31'), feb = options('2024-02-01', '2024-02-29');
   const first = await f.storage.load(whole, context, f.download);
   assert.equal(first.cache.hit, false);
+  const family = (await fs.readdir(path.join(f.rootDir, '.sales-data')))[0];
+  assert.equal((await fs.readdir(path.join(f.rootDir, '.sales-data', family))).filter(name => name.endsWith('.gz')).length, 3);
   const reopened = createSalesDataStore({ rootDir: f.rootDir, now: () => Date.now() + 365 * 86400000 });
   const exact = await reopened.load(whole, context, f.download);
   assert.equal(exact.cache.hit, true);
   const subset = await reopened.load(feb, context, f.download);
   assert.equal(f.calls.length, 1);
-  assert.equal(subset.localData.mode, 'assembled');
+  assert.equal(subset.localData.mode, 'exact');
   assert.equal(subset.rows[0].mean, null);
   assert.deepEqual(comparable(subset), comparable(exported(feb)));
   const jan = await reopened.load(options('2024-01-01', '2024-01-31'), context, f.download);

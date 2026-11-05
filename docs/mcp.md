@@ -82,7 +82,7 @@ erp_execute({ operation: 'sales_volume_ranking', requestId: 'jy-sales-2026-10-to
 } })
 ```
 
-`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。分类记录计数保持全部类型默认值。排名默认 `source: 'export'`，解析 CSV 并全局排序，最后按 page/pageSize 截取。远程 HTTP MCP 默认启用不自动过期的完整销量快照，可复用精确覆盖；仅已验证的 JY 顶级物料、SKU 汇总、月度范围且按销量或 SKU 排序时，才会按完整月份片段复用并只导出缺口。其他范围仅复用完全相同的快照。`source: 'list'`、JS API 和 stdio MCP 不使用此持久层或共享 TTL 缓存。`salesData.enabled: false` 时改用短期 `salesCache`；两者都禁用时每次重新导出。`fetchAll: true` 返回全部排名，指定 `sku` 时精确过滤并返回全部匹配结果。快照的权限隔离、数据来源时间与强制刷新见[远程 MCP 文档](./remote-mcp.md#远程销量数据存储与短期缓存)。
+`productTypeCate` 省略时默认 `"5"`（顶级物料）；显式 `"6"` 查询二级物料，显式 `""` 查询全部类型。分类记录计数保持全部类型默认值。排名默认 `source: 'export'`，解析 CSV 并全局排序，最后按 page/pageSize 截取。远程 HTTP MCP 默认把销量导出合并成按月快照并永久保存。同一筛选下，之后落在这些月份里的月度或年度请求直接读磁盘，只导出缺口；不满整月的边缘仍要补导出。按 `mean` 排序不使用月度合计。`source: 'list'`、JS API 和 stdio MCP 不使用此持久层或共享 TTL 缓存。`salesData.enabled: false` 时改用短期 `salesCache`；两者都禁用时每次重新导出。`fetchAll: true` 返回全部排名，指定 `sku` 时精确过滤并返回全部匹配结果。快照的权限隔离、数据来源时间与强制刷新见[远程 MCP 文档](./remote-mcp.md#远程销量数据存储与短期缓存)。
 
 通过 `jobs.status` 轮询同一个 jobId；进度包含提交、等待、下载、解析和上游 taskId。重试或轮询使用相同 requestId，不要每次轮询新建导出；远程数据或 TTL 缓存的强制刷新必须使用新的 requestId，同一 ID 始终复用原任务。每次 ERP 导出的等待上限约20分钟，CSV 上限64MiB；后台任务失败或 CSV 无法识别会报错，不返回部分排名。GBK 销量 CSV 已通过真实样本验证，仍会逐次检查期间、SKU 与小计。
 
